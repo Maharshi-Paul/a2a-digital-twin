@@ -1,0 +1,39 @@
+# ============ Python / Backend ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+venv/
+.venv/
+env/
+
+# ============ Node / Frontend ============
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# ============ Environment ============
+.env
+.env.local
+.env.*.local
+
+# ============ IDE / Editor ============
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ============ Docker ============
+*.log
+
+# ============ OS ============
+desktop.ini
