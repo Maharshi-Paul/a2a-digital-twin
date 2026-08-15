@@ -1,0 +1,100 @@
+a2a-digital-twin/
+├── backend/
+│   ├── core/
+│   │   ├── a2a/
+│   │   │   ├── __init__.py
+│   │   │   ├── message_bus.py
+│   │   │   └── protocol.py
+│   │   ├── mcp/
+│   │   │   ├── __init__.py
+│   │   │   └── registry.py
+│   │   ├── agents/
+│   │   │   ├── __init__.py
+│   │   │   └── base.py
+│   │   ├── queue_engine/
+│   │   │   ├── __init__.py
+│   │   │   └── base.py
+│   │   ├── models/
+│   │   │   ├── __init__.py
+│   │   │   ├── agent.py
+│   │   │   ├── message.py
+│   │   │   ├── negotiation.py
+│   │   │   └── task.py
+│   │   ├── api/
+│   │   │   ├── __init__.py
+│   │   │   └── health.py
+│   │   ├── __init__.py
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   └── main.py
+│   │
+│   ├── domains/
+│   │   ├── __init__.py
+│   │   ├── warehouse/
+│   │   │   ├── __init__.py
+│   │   │   ├── agents/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── order_agent.py
+│   │   │   │   ├── inventory_agent.py
+│   │   │   │   ├── picking_agent.py
+│   │   │   │   ├── packing_agent.py
+│   │   │   │   └── dock_agent.py
+│   │   │   ├── services/
+│   │   │   │   └── __init__.py
+│   │   │   ├── simulation/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── order_generator.py
+│   │   │   │   └── seeder.py
+│   │   │   ├── models/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── order.py
+│   │   │   │   ├── inventory_item.py
+│   │   │   │   └── dock.py
+│   │   │   ├── queue_engine/
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── scorer.py
+│   │   │   └── api/
+│   │   │       ├── __init__.py
+│   │   │       └── routes.py
+│   │   │
+│   │   └── airport/
+│   │       ├── __init__.py
+│   │       ├── agents/
+│   │       │   └── __init__.py
+│   │       ├── services/
+│   │       │   └── __init__.py
+│   │       ├── simulation/
+│   │       │   └── __init__.py
+│   │       ├── models/
+│   │       │   └── __init__.py
+│   │       ├── queue_engine/
+│   │       │   └── __init__.py
+│   │       └── api/
+│   │           └── __init__.py
+│   │
+│   └── requirements.txt
+│
+├── frontend/
+│   ├── src/
+│   │   ├── core/
+│   │   │   ├── components/
+│   │   │   ├── dashboard/
+│   │   │   └── negotiation-viewer/
+│   │   ├── domains/
+│   │   │   ├── warehouse/
+│   │   │   │   ├── components/
+│   │   │   │   └── views/
+│   │   │   └── airport/
+│   │   │       ├── components/
+│   │   │       └── views/
+│   │   └── app/
+│   ├── public/
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── next.config.js
+│
+├── docker-compose.yml
+├── .env.example
+├── .gitignore
+├── LICENSE
+└── README.md
