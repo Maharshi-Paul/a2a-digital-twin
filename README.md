@@ -42,9 +42,9 @@ MCP-style tools are responsible for standardized access to warehouse state, infr
 
 ## Current Phase
 
-Phase 0: Scaffold.
+Phase 10: Polish — Complete.
 
-The repository now contains the documented package skeleton for the future modular implementation under `backend/core` and `backend/domains/warehouse`. The earlier `backend/app` implementation remains in place and should be audited and migrated phase by phase rather than overwritten blindly.
+All phases implemented. Backend runs under `backend/core` (framework) + `backend/domains/warehouse` (business logic). Frontend uses a modular architecture under `frontend/src/core` (shared components, hooks, types) + `frontend/src/domains/warehouse` (domain views and components). The live dashboard features real-time KPIs, dynamic priority queue, zone heatmap, agent activity feed, negotiation viewer, worker status, and packing/dock monitors — all powered by WebSocket.
 
 ## Project Structure
 
