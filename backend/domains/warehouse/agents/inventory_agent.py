@@ -5,11 +5,13 @@ Responsibilities:
 - Detects stockouts and publishes STOCKOUT_ALERT via A2A
 - Proposes substitute SKUs from the SKU substitute list
 - Maintains real-time view of shelf quantities
+- Logs stockout and substitution decisions to NegotiationTrace
 """
 
 from __future__ import annotations
 
 import logging
+import time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -109,8 +111,17 @@ class InventoryAgent(BaseAgent):
         self, requester: str, order_id: int, sku_id: int
     ) -> None:
         """Detect stockout and propose substitute SKUs."""
+        t0 = time.monotonic()
         logger.warning(
             "[inventory] STOCKOUT detected: SKU %d for order %d", sku_id, order_id
+        )
+
+        # Start a negotiation trace for this stockout
+        trace_id = await self._start_trace(
+            order_id=order_id,
+            trace_type="substitute_offer",
+            participants=["inventory_agent", requester, "order_coordinator"],
+            metadata={"stockout_sku_id": sku_id},
         )
 
         # Alert the order coordinator
@@ -122,7 +133,27 @@ class InventoryAgent(BaseAgent):
 
         # Find substitutes
         substitutes = await self._find_substitutes(sku_id)
+
         if substitutes:
+            await self._log_decision(
+                trace_id=trace_id,
+                step_number=1,
+                action="propose_substitutes",
+                input_state={
+                    "order_id": order_id,
+                    "stockout_sku_id": sku_id,
+                },
+                output={
+                    "substitutes_found": len(substitutes),
+                    "substitutes": [
+                        {"sku_id": s["sku_id"], "available_qty": s["available_qty"]}
+                        for s in substitutes
+                    ],
+                },
+                latency_ms=self._ms_since(t0),
+            )
+            await self._complete_trace(trace_id, "resolved", self._ms_since(t0))
+
             await self.send(
                 requester,
                 MessageType.SUBSTITUTE_OFFER,
@@ -138,6 +169,19 @@ class InventoryAgent(BaseAgent):
                 sku_id,
             )
         else:
+            await self._log_decision(
+                trace_id=trace_id,
+                step_number=1,
+                action="propose_substitutes",
+                input_state={
+                    "order_id": order_id,
+                    "stockout_sku_id": sku_id,
+                },
+                output={"substitutes_found": 0, "result": "no_substitutes"},
+                latency_ms=self._ms_since(t0),
+            )
+            await self._complete_trace(trace_id, "escalated", self._ms_since(t0))
+
             logger.warning("[inventory] No substitutes available for SKU %d", sku_id)
             await self.send(
                 requester,

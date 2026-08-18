@@ -35,7 +35,13 @@ class Settings(BaseSettings):
 
     # ── Simulation ─────────────────────────────────────────────────────
     simulation_lambda: float = 3.0  # orders per minute (Poisson λ)
+    simulation_min_lambda: float = 0.5
+    simulation_max_lambda: float = 10.0
+    simulation_sla_min: int = 15  # minutes
+    simulation_sla_max: int = 60  # minutes
+    simulation_max_items_per_order: int = 5
     simulation_seed: int = 42
+    simulation_config_path: str | None = None  # optional YAML/JSON override
 
     # ── LLM ────────────────────────────────────────────────────────────
     llm_provider: str = "none"

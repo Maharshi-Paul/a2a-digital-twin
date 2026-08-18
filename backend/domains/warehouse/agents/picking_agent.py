@@ -7,6 +7,7 @@ Responsibilities:
 - Handles substitute offers from Inventory Agent
 - Calculates shortest-path picking sequences
 - Detects worker disruptions and triggers reassignment
+- Logs all worker-assignment decisions to NegotiationTrace
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -85,6 +87,7 @@ class PickingAgent(BaseAgent):
 
     async def _handle_stock_response(self, msg: A2AMessage) -> None:
         """Process stock availability and assign a worker."""
+        t0 = time.monotonic()
         order_id = msg.payload.get("order_id")
         items = msg.payload.get("items", [])
         all_available = msg.payload.get("all_available", False)
@@ -103,16 +106,54 @@ class PickingAgent(BaseAgent):
                 for loc in item.get("shelf_locations", []):
                     shelf_locations.append(loc)
 
+        # Start negotiation trace
+        trace_id = await self._start_trace(
+            order_id=order_id,
+            trace_type="picking_assignment",
+            participants=["picking_agent", "inventory_agent"],
+            metadata={"shelf_locations_count": len(shelf_locations)},
+        )
+
         # Find best worker
-        worker = await self._find_best_worker(shelf_locations)
+        worker, candidates = await self._find_best_worker(shelf_locations)
         if not worker:
             logger.warning("[picking] No available workers for order %d", order_id)
+
+            # Log failed decision
+            await self._log_decision(
+                trace_id=trace_id,
+                step_number=1,
+                action="assign_worker",
+                input_state={"order_id": order_id, "candidates": []},
+                output={"result": "no_workers_available"},
+                latency_ms=self._ms_since(t0),
+            )
+            await self._complete_trace(trace_id, "escalated", self._ms_since(t0))
+
             await self.send(
                 "order_coordinator",
                 MessageType.NACK,
                 payload={"order_id": order_id, "reason": "no_workers_available"},
             )
             return
+
+        # Log the successful worker assignment decision
+        await self._log_decision(
+            trace_id=trace_id,
+            step_number=1,
+            action="assign_worker",
+            input_state={
+                "order_id": order_id,
+                "candidates": candidates,
+                "shelf_locations": len(shelf_locations),
+            },
+            output={
+                "selected_worker_id": worker["id"],
+                "selected_worker_name": worker["name"],
+                "selection_score": worker["score"],
+            },
+            latency_ms=self._ms_since(t0),
+        )
 
         # Assign worker
         async with self.session_factory() as session:
@@ -131,13 +172,29 @@ class PickingAgent(BaseAgent):
 
         # Compute picking path
         path = self._compute_picking_path(shelf_locations)
+        path_distance = self._compute_path_distance(path)
+
+        # Log path planning decision
+        await self._log_decision(
+            trace_id=trace_id,
+            step_number=2,
+            action="compute_picking_path",
+            input_state={"locations_count": len(shelf_locations)},
+            output={
+                "path_stops": len(path),
+                "total_distance": round(path_distance, 1),
+            },
+            latency_ms=self._ms_since(t0),
+        )
+
+        await self._complete_trace(trace_id, "resolved", self._ms_since(t0))
 
         logger.info(
             "[picking] Assigned worker %d to order %d (path: %d stops, distance: %.1f)",
             worker["id"],
             order_id,
             len(path),
-            self._compute_path_distance(path),
+            path_distance,
         )
 
         # Simulate pick completion (in production, this awaits IoT signals)
@@ -147,6 +204,7 @@ class PickingAgent(BaseAgent):
 
     async def _handle_substitute_offer(self, msg: A2AMessage) -> None:
         """Accept the first available substitute SKU."""
+        t0 = time.monotonic()
         order_id = msg.payload.get("order_id")
         original_sku = msg.payload.get("original_sku_id")
         substitutes = msg.payload.get("substitutes", [])
@@ -155,8 +213,36 @@ class PickingAgent(BaseAgent):
             logger.warning("[picking] No substitutes for SKU %d", original_sku)
             return
 
+        # Log substitute acceptance decision
+        trace_id = await self._start_trace(
+            order_id=order_id,
+            trace_type="substitute_acceptance",
+            participants=["picking_agent", "inventory_agent"],
+        )
+
         # Accept the first substitute (highest availability)
         chosen = substitutes[0]
+
+        await self._log_decision(
+            trace_id=trace_id,
+            step_number=1,
+            action="accept_substitute",
+            input_state={
+                "order_id": order_id,
+                "original_sku_id": original_sku,
+                "available_substitutes": [
+                    {"sku_id": s["sku_id"], "qty": s.get("available_qty", 0)}
+                    for s in substitutes
+                ],
+            },
+            output={
+                "accepted_sku_id": chosen["sku_id"],
+                "accepted_name": chosen.get("name", "Unknown"),
+            },
+            latency_ms=self._ms_since(t0),
+        )
+        await self._complete_trace(trace_id, "resolved", self._ms_since(t0))
+
         logger.info(
             "[picking] Accepting substitute: SKU %d → %d for order %d",
             original_sku,
@@ -281,15 +367,19 @@ class PickingAgent(BaseAgent):
 
     async def _find_best_worker(
         self, shelf_locations: list[dict]
-    ) -> dict | None:
-        """Find the idle worker closest to the pick locations with lowest load."""
+    ) -> tuple[dict | None, list[dict]]:
+        """Find the idle worker closest to the pick locations with lowest load.
+
+        Returns:
+            Tuple of (best_worker_dict_or_None, list_of_all_candidate_dicts).
+        """
         async with self.session_factory() as session:
             stmt = select(Worker).where(Worker.status == WorkerStatus.IDLE)
             result = await session.execute(stmt)
             workers = list(result.scalars())
 
         if not workers:
-            return None
+            return None, []
 
         # Compute centroid of pick locations (approximate)
         if shelf_locations:
@@ -303,6 +393,7 @@ class PickingAgent(BaseAgent):
             avg_aisle, avg_rack = 65.0, 1.0  # default 'A', rack 1
 
         # Score workers: prefer closest and least loaded
+        candidates = []
         best = None
         best_score = float("inf")
         for w in workers:
@@ -310,11 +401,19 @@ class PickingAgent(BaseAgent):
                 (w.position_x - avg_aisle) ** 2 + (w.position_y - avg_rack) ** 2
             )
             score = dist + w.task_count * 5.0  # penalize heavily loaded workers
+            candidate = {
+                "id": w.id,
+                "name": w.name,
+                "score": round(score, 2),
+                "distance": round(dist, 2),
+                "task_count": w.task_count,
+            }
+            candidates.append(candidate)
             if score < best_score:
                 best_score = score
-                best = {"id": w.id, "name": w.name, "score": score}
+                best = {"id": w.id, "name": w.name, "score": round(score, 2)}
 
-        return best
+        return best, candidates
 
     # ── Path Planning ──────────────────────────────────────────────────
 

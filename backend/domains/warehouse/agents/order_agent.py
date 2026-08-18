@@ -6,11 +6,13 @@ Responsibilities:
 - Delegates pick tasks to Picking Agent
 - Monitors SLA deadlines and escalates at-risk orders
 - Triggers queue re-scoring every cycle
+- Logs dispatch-priority decisions to NegotiationTrace
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -160,9 +162,38 @@ class OrderCoordinatorAgent(BaseAgent):
         )
 
     async def _handle_queue_update(self, msg: A2AMessage) -> None:
-        """Process queue re-scoring results and dispatch top-priority orders."""
+        """Process queue re-scoring results and log dispatch-priority decisions."""
+        t0 = time.monotonic()
         ranked_orders = msg.payload.get("ranked_order_ids", [])
+        cycle = msg.payload.get("cycle", 0)
+        top_score = msg.payload.get("top_score", 0.0)
+
         if ranked_orders:
+            # Log the dispatch priority decision
+            trace_id = await self._start_trace(
+                order_id=ranked_orders[0] if ranked_orders else 0,
+                trace_type="dispatch_priority",
+                participants=["order_coordinator", "queue_engine"],
+                metadata={"cycle": cycle},
+            )
+
+            await self._log_decision(
+                trace_id=trace_id,
+                step_number=1,
+                action="update_priority_ranking",
+                input_state={
+                    "cycle": cycle,
+                    "scored_count": msg.payload.get("scored_count", 0),
+                },
+                output={
+                    "top_order_id": ranked_orders[0],
+                    "top_score": top_score,
+                    "ranked_order_ids": ranked_orders[:10],
+                },
+                latency_ms=self._ms_since(t0),
+            )
+            await self._complete_trace(trace_id, "resolved", self._ms_since(t0))
+
             logger.info(
                 "[order_coordinator] Queue updated — top order: %s",
                 ranked_orders[0],

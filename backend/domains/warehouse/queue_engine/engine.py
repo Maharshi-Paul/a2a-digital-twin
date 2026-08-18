@@ -27,6 +27,7 @@ from domains.warehouse.queue_engine.scorer import (
     ScoringContext,
     score_order,
 )
+from domains.warehouse.queue_engine.fifo_baseline import FIFOBaseline, QueueComparison
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,8 @@ class WarehouseQueueEngine(BaseQueueEngine):
         self.session_factory = session_factory
         self._weights = PriorityWeights()
         self._last_scored: list[ScoredOrder] = []
+        self._fifo_baseline = FIFOBaseline()
+        self._last_comparison: list[QueueComparison] = []
 
     async def _tick(self) -> None:
         """Score all pending/queued orders this cycle."""
@@ -122,6 +125,20 @@ class WarehouseQueueEngine(BaseQueueEngine):
             scored[0].total_score if scored else 0.0,
         )
 
+        # Compute FIFO baseline and comparison
+        async with self.session_factory() as session:
+            await self._fifo_baseline.compute(session)
+        self._last_comparison = self._fifo_baseline.compare(
+            [
+                {
+                    "order_id": s.order_id,
+                    "external_id": s.external_id,
+                    "total_score": s.total_score,
+                }
+                for s in scored
+            ]
+        )
+
     # ── Context Helpers ────────────────────────────────────────────────
 
     async def _avg_congestion(self, session) -> float:
@@ -160,3 +177,11 @@ class WarehouseQueueEngine(BaseQueueEngine):
 
     def get_last_scored(self) -> list[ScoredOrder]:
         return self._last_scored
+
+    def get_last_comparison(self) -> list[QueueComparison]:
+        """Return the last FIFO vs priority comparison."""
+        return self._last_comparison
+
+    def get_fifo_baseline(self) -> list:
+        """Return the last FIFO baseline ordering."""
+        return self._fifo_baseline.get_last_fifo()

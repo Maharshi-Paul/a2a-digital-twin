@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from core.a2a.message_bus import BROADCAST_CHANNEL, MessageBus
 from core.a2a.handlers import persist_message
 from core.a2a.protocol import A2AMessage, MessageType
+from core.models.decision_log import DecisionRecord, NegotiationTrace
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,7 @@ class BaseAgent(ABC):
     - Message sending helpers with optional persistence
     - Background task lifecycle management
     - Heartbeat monitoring
+    - Decision logging for negotiation trace replay
     """
 
     def __init__(
@@ -135,3 +138,104 @@ class BaseAgent(ABC):
         reply_msg = original.reply(msg_type, payload)
         reply_msg.sender = self.name
         await self.bus.send_to_agent(original.sender, reply_msg)
+
+    # ── Decision Logging ───────────────────────────────────────────────
+
+    async def _start_trace(
+        self,
+        order_id: int,
+        trace_type: str,
+        participants: list[str],
+        decision_method: str = "algorithmic",
+        metadata: dict[str, Any] | None = None,
+    ) -> int:
+        """Create a NegotiationTrace and return its id.
+
+        Args:
+            order_id:        The order this negotiation is about.
+            trace_type:      Category (e.g. "picking_assignment", "dock_conflict").
+            participants:    List of agent names involved.
+            decision_method: "algorithmic", "llm", or "fifo_baseline".
+            metadata:        Optional extra context to store.
+
+        Returns:
+            The database id of the newly created trace.
+        """
+        async with self.session_factory() as session:
+            trace = NegotiationTrace(
+                order_id=order_id,
+                trace_type=trace_type,
+                initiated_by=self.name,
+                participants=participants,
+                outcome="pending",
+                decision_method=decision_method,
+                trace_metadata=metadata or {},
+            )
+            session.add(trace)
+            await session.flush()
+            trace_id = trace.id
+            await session.commit()
+        return trace_id
+
+    async def _log_decision(
+        self,
+        trace_id: int,
+        step_number: int,
+        action: str,
+        input_state: dict[str, Any],
+        output: dict[str, Any],
+        reasoning: str | None = None,
+        model_used: str | None = None,
+        latency_ms: int = 0,
+    ) -> None:
+        """Persist a decision record within a negotiation trace.
+
+        Args:
+            trace_id:     ID of the parent NegotiationTrace.
+            step_number:  Sequence number within the trace.
+            action:       What was decided (e.g. "assign_worker").
+            input_state:  State snapshot before the decision.
+            output:       Decision result.
+            reasoning:    LLM reasoning text (None for algorithmic).
+            model_used:   Model identifier (None for algorithmic).
+            latency_ms:   How long the decision took.
+        """
+        async with self.session_factory() as session:
+            record = DecisionRecord(
+                trace_id=trace_id,
+                agent_name=self.name,
+                step_number=step_number,
+                action=action,
+                input_state=input_state,
+                output=output,
+                reasoning=reasoning,
+                model_used=model_used,
+                latency_ms=latency_ms,
+            )
+            session.add(record)
+            await session.commit()
+
+    async def _complete_trace(
+        self,
+        trace_id: int,
+        outcome: str,
+        duration_ms: int = 0,
+    ) -> None:
+        """Mark a negotiation trace as complete.
+
+        Args:
+            trace_id:    ID of the trace to finalize.
+            outcome:     Final outcome ("resolved", "escalated", "timed_out").
+            duration_ms: Total negotiation duration in milliseconds.
+        """
+        async with self.session_factory() as session:
+            trace = await session.get(NegotiationTrace, trace_id)
+            if trace:
+                trace.outcome = outcome
+                trace.duration_ms = duration_ms
+                await session.commit()
+
+    @staticmethod
+    def _ms_since(start: float) -> int:
+        """Return milliseconds elapsed since ``start`` (from ``time.monotonic()``)."""
+        return int((time.monotonic() - start) * 1000)

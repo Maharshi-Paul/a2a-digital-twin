@@ -1,7 +1,8 @@
 """Poisson-distributed order generator for warehouse simulation.
 
 Generates synthetic orders at a configurable rate (λ orders/min)
-using a Poisson process.
+using a Poisson process.  Now driven by ``ArrivalRateConfig`` from
+the core simulation framework.
 """
 
 from __future__ import annotations
@@ -15,9 +16,9 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from core.config import settings
-from domains.warehouse.models.order import Order, OrderItem, OrderStatus
+from core.simulation.config import ArrivalRateConfig
 from domains.warehouse.models.inventory_item import SKU
+from domains.warehouse.models.order import Order, OrderItem, OrderStatus
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +30,30 @@ class OrderGenerator:
         self,
         session_factory: async_sessionmaker,
         on_order_created: asyncio.coroutines | None = None,
-        lam: float = settings.simulation_lambda,
+        arrival_config: ArrivalRateConfig | None = None,
+        *,
+        lam: float | None = None,
     ) -> None:
+        # Support both new config and legacy ``lam`` kwarg
+        if arrival_config is not None:
+            self._config = arrival_config
+        else:
+            from core.config import settings
+            self._config = ArrivalRateConfig(
+                lambda_per_minute=lam if lam is not None else settings.simulation_lambda,
+            )
+
         self.session_factory = session_factory
         self.on_order_created = on_order_created
-        self.lam = lam  # orders per minute
         self._task: asyncio.Task | None = None
         self._running = False
         self._total_generated = 0
         self._sku_ids: list[int] = []
+
+    @property
+    def lam(self) -> float:
+        """Current λ (orders/minute) for backward compatibility."""
+        return self._config.lambda_per_minute
 
     # ── Lifecycle ──────────────────────────────────────────────────
 
@@ -56,9 +72,14 @@ class OrderGenerator:
 
         self._task = asyncio.create_task(self._generate_loop(), name="order_generator")
         logger.info(
-            "Order Generator started (λ=%.1f orders/min, %d SKUs available)",
-            self.lam,
+            "Order Generator started (λ=%.1f orders/min, %d SKUs available, "
+            "SLA=%d–%dmin, items=%d–%d)",
+            self._config.lambda_per_minute,
             len(self._sku_ids),
+            self._config.sla_window_minutes[0],
+            self._config.sla_window_minutes[1],
+            self._config.items_per_event[0],
+            self._config.items_per_event[1],
         )
 
     async def stop(self) -> None:
@@ -81,11 +102,11 @@ class OrderGenerator:
         while self._running:
             try:
                 # Poisson inter-arrival time (exponential distribution)
-                rate_per_second = self.lam / 60.0
+                rate_per_second = self._config.lambda_per_minute / 60.0
                 interval = random.expovariate(rate_per_second)
 
-                # Cap interval at 30 seconds to avoid long waits
-                interval = min(interval, 30.0)
+                # Cap interval to prevent long waits
+                interval = min(interval, self._config.max_interval_seconds)
                 await asyncio.sleep(interval)
 
                 order = await self._create_order()
@@ -99,15 +120,18 @@ class OrderGenerator:
                 await asyncio.sleep(1.0)
 
     async def _create_order(self) -> Order | None:
-        """Create a single random order with 1-5 items."""
+        """Create a single random order with configurable item count."""
         now = datetime.now(timezone.utc)
-        num_items = random.randint(1, 5)
+
+        item_min, item_max = self._config.items_per_event
+        num_items = random.randint(item_min, item_max)
         chosen_skus = random.sample(
             self._sku_ids, min(num_items, len(self._sku_ids))
         )
 
-        # SLA deadline: 15-60 minutes from now
-        sla_minutes = random.randint(15, 60)
+        # SLA deadline from config range
+        sla_min, sla_max = self._config.sla_window_minutes
+        sla_minutes = random.randint(sla_min, sla_max)
         sla_deadline = now + timedelta(minutes=sla_minutes)
 
         external_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
@@ -153,3 +177,8 @@ class OrderGenerator:
     @property
     def total_generated(self) -> int:
         return self._total_generated
+
+    @property
+    def config(self) -> ArrivalRateConfig:
+        """Expose the arrival-rate config for API introspection."""
+        return self._config

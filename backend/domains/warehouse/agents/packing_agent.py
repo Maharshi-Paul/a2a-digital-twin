@@ -5,12 +5,14 @@ Responsibilities:
 - Routes completed picks to optimal packing stations
 - Reports pack completion to Order Coordinator
 - Broadcasts capacity updates
+- Logs station-assignment decisions to NegotiationTrace
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -39,19 +41,53 @@ class PackingAgent(BaseAgent):
 
     async def _handle_pack_request(self, msg: A2AMessage) -> None:
         """Route a picked order to the best packing station."""
+        t0 = time.monotonic()
         order_id = msg.payload.get("order_id")
         if not order_id:
             return
 
-        station = await self._find_best_station()
+        # Start decision trace
+        trace_id = await self._start_trace(
+            order_id=order_id,
+            trace_type="station_assignment",
+            participants=["packing_agent"],
+        )
+
+        station, all_stations = await self._find_best_station()
         if not station:
             logger.warning("[packing] No available packing stations!")
+
+            await self._log_decision(
+                trace_id=trace_id,
+                step_number=1,
+                action="assign_station",
+                input_state={"order_id": order_id, "stations": all_stations},
+                output={"result": "no_packing_capacity"},
+                latency_ms=self._ms_since(t0),
+            )
+            await self._complete_trace(trace_id, "escalated", self._ms_since(t0))
+
             await self.reply(
                 msg,
                 MessageType.NACK,
                 payload={"order_id": order_id, "reason": "no_packing_capacity"},
             )
             return
+
+        # Log the station assignment decision
+        await self._log_decision(
+            trace_id=trace_id,
+            step_number=1,
+            action="assign_station",
+            input_state={"order_id": order_id, "stations": all_stations},
+            output={
+                "selected_station_id": station["id"],
+                "selected_station_name": station["name"],
+                "available_capacity": station["capacity"] - station["current_load"],
+            },
+            latency_ms=self._ms_since(t0),
+        )
+        await self._complete_trace(trace_id, "resolved", self._ms_since(t0))
 
         # Assign to station
         async with self.session_factory() as session:
@@ -107,25 +143,41 @@ class PackingAgent(BaseAgent):
         )
         logger.info("[packing] Pack complete: order %d at station %s", order_id, station["name"])
 
-    async def _find_best_station(self) -> dict | None:
-        """Find the packing station with the most available capacity."""
-        async with self.session_factory() as session:
-            stmt = (
-                select(PackingStation)
-                .where(PackingStation.status == StationStatus.AVAILABLE)
-                .order_by((PackingStation.capacity - PackingStation.current_load).desc())
-            )
-            result = await session.execute(stmt)
-            station = result.scalar_one_or_none()
+    async def _find_best_station(self) -> tuple[dict | None, list[dict]]:
+        """Find the packing station with the most available capacity.
 
-            if station:
-                return {
-                    "id": station.id,
-                    "name": station.name,
-                    "capacity": station.capacity,
-                    "current_load": station.current_load,
-                }
-        return None
+        Returns:
+            Tuple of (best_station_dict_or_None, list_of_all_station_dicts).
+        """
+        async with self.session_factory() as session:
+            result = await session.execute(select(PackingStation))
+            all_stations_orm = list(result.scalars())
+
+        # Build list for logging
+        all_stations = [
+            {
+                "id": ps.id,
+                "name": ps.name,
+                "capacity": ps.capacity,
+                "current_load": ps.current_load,
+                "status": ps.status.value,
+                "available_capacity": ps.capacity - ps.current_load,
+            }
+            for ps in all_stations_orm
+        ]
+
+        # Find best available
+        available = [
+            s for s in all_stations
+            if s["status"] == StationStatus.AVAILABLE.value
+        ]
+        if not available:
+            return None, all_stations
+
+        # Sort by available capacity descending
+        available.sort(key=lambda s: s["available_capacity"], reverse=True)
+        best = available[0]
+        return best, all_stations
 
     async def get_packing_utilization(self) -> float:
         """Get overall packing utilization (0.0 to 1.0)."""

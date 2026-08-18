@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
+from core.models.decision_log import DecisionRecord, NegotiationTrace
 from domains.warehouse.models.order import OrderStatus
 from domains.warehouse.services.warehouse_service import WarehouseService
 
@@ -144,4 +145,124 @@ async def simulation_status():
     return {
         "running": _generator.is_running,
         "total_generated": _generator.total_generated,
+    }
+
+
+# ── Decision Traces ────────────────────────────────────────────────────
+
+@router.get("/decisions/traces")
+async def list_traces(
+    order_id: int | None = None,
+    trace_type: str | None = None,
+    limit: int = Query(50, ge=1, le=500),
+    session: AsyncSession = Depends(get_session),
+):
+    """List negotiation traces with optional filters."""
+    from sqlalchemy import select
+
+    stmt = select(NegotiationTrace).order_by(NegotiationTrace.created_at.desc())
+    if order_id:
+        stmt = stmt.where(NegotiationTrace.order_id == order_id)
+    if trace_type:
+        stmt = stmt.where(NegotiationTrace.trace_type == trace_type)
+    stmt = stmt.limit(limit)
+
+    result = await session.execute(stmt)
+    traces = list(result.scalars())
+    return [
+        {
+            "id": t.id,
+            "order_id": t.order_id,
+            "trace_type": t.trace_type,
+            "initiated_by": t.initiated_by,
+            "participants": t.participants,
+            "outcome": t.outcome,
+            "decision_method": t.decision_method,
+            "duration_ms": t.duration_ms,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "metadata": t.trace_metadata,
+        }
+        for t in traces
+    ]
+
+
+@router.get("/decisions/records")
+async def list_records(
+    trace_id: int | None = None,
+    agent_name: str | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    session: AsyncSession = Depends(get_session),
+):
+    """List individual decision records."""
+    from sqlalchemy import select
+
+    stmt = select(DecisionRecord).order_by(DecisionRecord.created_at.desc())
+    if trace_id:
+        stmt = stmt.where(DecisionRecord.trace_id == trace_id)
+    if agent_name:
+        stmt = stmt.where(DecisionRecord.agent_name == agent_name)
+    stmt = stmt.limit(limit)
+
+    result = await session.execute(stmt)
+    records = list(result.scalars())
+    return [
+        {
+            "id": r.id,
+            "trace_id": r.trace_id,
+            "agent_name": r.agent_name,
+            "step_number": r.step_number,
+            "action": r.action,
+            "input_state": r.input_state,
+            "reasoning": r.reasoning,
+            "output": r.output,
+            "model_used": r.model_used,
+            "latency_ms": r.latency_ms,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in records
+    ]
+
+
+# ── FIFO Baseline Comparison ───────────────────────────────────────────
+
+@router.get("/queue/fifo")
+async def fifo_baseline():
+    """Get current FIFO baseline ordering."""
+    if not _queue_engine:
+        raise HTTPException(503, "Queue engine not initialized")
+    fifo = _queue_engine.get_fifo_baseline()
+    return {
+        "count": len(fifo),
+        "orders": [
+            {
+                "order_id": f.order_id,
+                "external_id": f.external_id,
+                "fifo_position": f.position,
+                "created_at": f.created_at.isoformat() if f.created_at else None,
+            }
+            for f in fifo[:50]
+        ],
+    }
+
+
+@router.get("/queue/comparison")
+async def queue_comparison():
+    """Compare priority queue against FIFO baseline."""
+    if not _queue_engine:
+        raise HTTPException(503, "Queue engine not initialized")
+    comparisons = _queue_engine.get_last_comparison()
+    return {
+        "cycle": _queue_engine.cycle_count,
+        "count": len(comparisons),
+        "comparisons": [
+            {
+                "order_id": c.order_id,
+                "external_id": c.external_id,
+                "priority_rank": c.priority_rank,
+                "fifo_rank": c.fifo_rank,
+                "priority_score": c.priority_score,
+                "rank_delta": c.rank_delta,
+            }
+            for c in comparisons[:50]
+        ],
     }
