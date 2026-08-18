@@ -1,27 +1,46 @@
-# Warehouse A2A Digital Twin
+# A2A Digital Twin — Warehouse
 
-AI-powered queue management and warehouse orchestration prototype for quick-commerce dark stores.
+**A simulated warehouse digital twin that replaces static FIFO queues with a dynamic, negotiated priority engine — coordinated by autonomous agents talking to each other over A2A, with state accessed through an MCP-style tool layer.**
 
-This project is focused on one domain only:
+Built by Team **[Brute Force 6](./CONTRIBUTORS.md)**.
 
-- Warehouse fulfillment
+---
 
-It does not implement an airport domain or any second-domain UI.
+## Table of Contents
 
-## Objective
+- [Problem](#problem)
+- [Solution](#solution)
+- [Architecture](#architecture)
+- [Agents](#agents)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Setup](#setup)
+- [Usage](#usage)
+- [Validation Targets](#validation-targets)
+- [Current Phase](#current-phase)
+- [Phase Plan](#phase-plan)
+- [Known Limitations / Future Scope](#known-limitations--future-scope)
+- [License](#license)
 
-Build a simulated warehouse digital twin that coordinates specialized agents through A2A communication, accesses state through an MCP-style tool layer, and compares FIFO scheduling against a dynamic priority queue using identical synthetic workloads.
+---
 
-The MVP centers on four warehouse agents:
+## Problem
 
-- Order Coordinator Agent
-- Inventory Agent
-- Picking Agent
-- Packing and Dispatch Agent
+Quick-commerce dark stores run on fixed FIFO order queues. A FIFO queue treats every order the same regardless of SLA risk, order value, item availability, or current picker load — so a five-item order that just missed its SLA window waits behind nine single-item orders with hours of slack. The result is avoidable SLA breaches, uneven picker utilization, and packing-stage bottlenecks that a smarter scheduling policy could avoid entirely.
 
-Dock-related code, if present, is optional and must not be required for the primary MVP workflow.
+## Solution
 
-## Architecture Target
+A2A Digital Twin is a **simulated warehouse orchestration prototype** that swaps the static FIFO queue for a **dynamic priority engine**, driven by specialized agents that negotiate over which order gets worked next:
+
+1. Orders arrive through an ingestion API and are handed to the **Order Coordinator Agent**.
+2. The Coordinator scores and re-scores orders continuously against a **dynamic priority queue** — factoring in SLA risk, inventory state, and current pick/pack load.
+3. The **Inventory**, **Picking**, and **Packing & Dispatch** agents negotiate task assignment over an **A2A message bus**, each exposing and consuming warehouse state through a standardized **MCP-style tool layer**.
+4. Every decision, negotiation, and state change streams to a **live dashboard** over WebSockets, so the priority queue, zone heatmap, agent activity, and negotiation history are all visible in real time.
+5. The same synthetic order stream can be replayed against **FIFO** and against the **dynamic priority queue**, so the two policies are compared on identical workloads rather than anecdotally.
+
+The scheduling logic is intentionally **pure rule-based** — no LLM sits in the negotiation or scoring decision path. An inert `explain_decision()` hook is left in place for a possible future Claude-based dashboard commentary layer, but it plays no role in any actual decision today.
+
+## Architecture
 
 ```text
 Customer / Order Stream
@@ -36,15 +55,33 @@ Customer / Order Stream
   -> Live Dashboard
 ```
 
-A2A is responsible for agent-to-agent messaging, task delegation, negotiation, and context propagation.
+**A2A** handles agent-to-agent messaging, task delegation, negotiation, and context propagation.
+**MCP-style tools** handle standardized access to warehouse state, infrastructure, and data — no agent talks to Postgres or Redis directly.
 
-MCP-style tools are responsible for standardized access to warehouse state, infrastructure, and data.
+## Agents
 
-## Current Phase
+| Agent | Responsibility |
+|---|---|
+| Order Coordinator Agent | Scores incoming orders, maintains the dynamic priority queue, delegates work |
+| Inventory Agent | Tracks stock levels and availability, answers reservation requests |
+| Picking Agent | Claims and executes pick tasks, reports picker utilization and load |
+| Packing and Dispatch Agent | Finalizes orders for dispatch, surfaces packing-stage bottlenecks |
 
-Phase 10: Polish — Complete.
+Dock-related code, where present, is optional and is never required for the primary MVP workflow.
 
-All phases implemented. Backend runs under `backend/core` (framework) + `backend/domains/warehouse` (business logic). Frontend uses a modular architecture under `frontend/src/core` (shared components, hooks, types) + `frontend/src/domains/warehouse` (domain views and components). The live dashboard features real-time KPIs, dynamic priority queue, zone heatmap, agent activity feed, negotiation viewer, worker status, and packing/dock monitors — all powered by WebSocket.
+## Tech Stack
+
+| Layer | Tool |
+|---|---|
+| Backend framework | FastAPI (`backend/core`) |
+| Domain logic | `backend/domains/warehouse` |
+| Agent messaging | Custom A2A protocol / message bus |
+| State access | MCP-style tool registry |
+| Persistence | PostgreSQL 16 |
+| Live state, queues, pub/sub | Redis 7 |
+| Frontend | Next.js (`frontend/src/core` shared + `frontend/src/domains/warehouse` domain views) |
+| Real-time updates | WebSocket |
+| Simulation | Poisson-based synthetic order generator, seeded for reproducibility |
 
 ## Project Structure
 
@@ -87,67 +124,95 @@ warehouse-a2a-digital-twin-private/
   README.md
 ```
 
-## Infrastructure
+This project is scoped to a single domain — **warehouse fulfillment**. There is no airport domain, no second-domain UI, and no airport phase in the plan below.
 
-The local infrastructure uses:
+## Setup
 
-- PostgreSQL 16 for persistent transactional data
-- Redis 7 for live state, queues, pub/sub, and transient simulation state
+### 1. Clone the repo
 
-Start infrastructure:
+```bash
+git clone https://github.com/Maharshi-Paul/warehouse-a2a-digital-twin.git
+cd warehouse-a2a-digital-twin
+```
+
+### 2. Start infrastructure
 
 ```bash
 docker compose up -d postgres redis
 ```
 
-Validate compose configuration:
+Validate the compose configuration at any point with:
 
 ```bash
 docker compose config
 ```
 
-## Environment
+### 3. Configure environment
 
-Copy `.env.example` to `.env` for local development and adjust values as needed. Do not commit secrets.
+Copy `.env.example` to `.env` for local development and adjust values as needed. **Do not commit secrets.**
 
 Key defaults:
 
-- `DOMAIN=warehouse`
-- `DATABASE_URL=postgresql+asyncpg://wdt_user:wdt_pass@localhost:5432/warehouse_twin`
-- `REDIS_URL=redis://localhost:6379/0`
-- `QUEUE_TICK_SECONDS=2.0`
-- `SIMULATION_SEED=42`
-- `LLM_PROVIDER=none`
+| Variable | Default |
+|---|---|
+| `DOMAIN` | `warehouse` |
+| `DATABASE_URL` | `postgresql+asyncpg://wdt_user:wdt_pass@localhost:5432/warehouse_twin` |
+| `REDIS_URL` | `redis://localhost:6379/0` |
+| `QUEUE_TICK_SECONDS` | `2.0` |
+| `SIMULATION_SEED` | `42` |
+| `LLM_PROVIDER` | `none` |
 
-## Phase Plan
+### 4. Install dependencies
 
-The project should be implemented one phase at a time:
+```bash
+pip install -r backend/requirements.txt
+cd frontend && npm install
+```
 
-1. Phase 0: Scaffold
-2. Phase 1: Core foundation
-3. Phase 2: Core engine
-4. Phase 3: Core app
-5. Phase 4: Warehouse data
-6. Phase 5: Warehouse agents
-7. Phase 6: Warehouse queue engine and services
-8. Phase 7: Warehouse simulation and API
-9. Phase 8: Frontend core
-10. Phase 9: Warehouse frontend
-11. Phase 10: Polish
+## Usage
 
-There is no airport phase.
+Run the backend and simulation, then open the frontend to watch the live dashboard — real-time KPIs, the dynamic priority queue, a zone heatmap, an agent activity feed, a negotiation viewer, worker status, and packing/dock monitors, all driven over WebSocket.
+
+To compare scheduling policies, replay the same synthetic workload (same `SIMULATION_SEED`) once under FIFO and once under the dynamic priority queue, and diff the resulting metrics.
 
 ## Validation Targets
 
-Do not claim KPI improvements until they are measured by actual simulations against the same workload.
-
-Target metrics from the source documents include:
+KPI improvements are only claimed once they're measured by actual simulations against the same workload — not asserted ahead of the data. Target metrics from the source design documents:
 
 - Average waiting time reduction
 - Throughput increase
 - Picker utilization improvement
 - SLA breach reduction
 - Packing bottleneck reduction
+
+## Current Phase
+
+**Phase 10: Polish — Complete.**
+
+All phases are implemented. The backend runs under `backend/core` (framework) + `backend/domains/warehouse` (business logic). The frontend uses a modular architecture under `frontend/src/core` (shared components, hooks, types) + `frontend/src/domains/warehouse` (domain views and components).
+
+## Phase Plan
+
+| Phase | Description |
+|---|---|
+| 0 | Scaffold |
+| 1 | Core foundation |
+| 2 | Core engine |
+| 3 | Core app |
+| 4 | Warehouse data |
+| 5 | Warehouse agents |
+| 6 | Warehouse queue engine and services |
+| 7 | Warehouse simulation and API |
+| 8 | Frontend core |
+| 9 | Warehouse frontend |
+| 10 | Polish |
+
+## Known Limitations / Future Scope
+
+- Scheduling is pure rule-based today; the `explain_decision()` hook exists but is inert — no LLM sits in the decision path
+- All workloads are synthetic — there is no external/real-world test data source yet
+- Single-domain (warehouse) only, though the project is intended to generalize to additional domains (e.g. airports) in a future iteration
+- Dock-related code, where present, is optional and not exercised by the primary MVP path
 
 ## License
 
