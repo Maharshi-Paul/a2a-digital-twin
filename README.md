@@ -86,7 +86,7 @@ Dock-related code, where present, is optional and is never required for the prim
 ## Project Structure
 
 ```text
-warehouse-a2a-digital-twin-private/
+a2a-digital-twin-private/
   backend/
     app/                         Existing implementation retained for audit/migration
     core/
@@ -121,6 +121,7 @@ warehouse-a2a-digital-twin-private/
   .env.example
   .gitignore
   LICENSE
+  CONTRIBUTORS.md
   README.md
 ```
 
