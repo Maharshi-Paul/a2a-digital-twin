@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/A2A_Digital_Twin_Poster.png" alt="A2A Digital Twin banner" width="100%">
+</p>
+
 # A2A Digital Twin — Warehouse
 
 **A simulated warehouse digital twin that replaces static FIFO queues with a dynamic, negotiated priority engine — coordinated by autonomous agents talking to each other over A2A, with state accessed through an MCP-style tool layer.**
@@ -86,43 +90,88 @@ Dock-related code, where present, is optional and is never required for the prim
 ## Project Structure
 
 ```text
-a2a-digital-twin-private/
-  backend/
-    app/                         Existing implementation retained for audit/migration
-    core/
-      a2a/
-      agents/
-      api/
-      mcp/
-      models/
-      queue_engine/
-    domains/
-      warehouse/
-        agents/
-        api/
-        models/
-        queue_engine/
-        services/
-        simulation/
-    requirements.txt
-  frontend/
-    src/
-      app/
-      core/
-        components/
-        dashboard/
-        negotiation-viewer/
-      domains/
-        warehouse/
-          components/
-          views/
-  assets/
-  docker-compose.yml
-  .env.example
-  .gitignore
-  LICENSE
-  CONTRIBUTORS.md
-  README.md
+a2a-digital-twin/
+├── backend/
+│   ├── core/
+│   │   ├── a2a/
+│   │   │   ├── __init__.py
+│   │   │   ├── message_bus.py
+│   │   │   └── protocol.py
+│   │   ├── mcp/
+│   │   │   ├── __init__.py
+│   │   │   └── registry.py
+│   │   ├── agents/
+│   │   │   ├── __init__.py
+│   │   │   └── base.py
+│   │   ├── queue_engine/
+│   │   │   ├── __init__.py
+│   │   │   └── base.py
+│   │   ├── models/
+│   │   │   ├── __init__.py
+│   │   │   ├── agent.py
+│   │   │   ├── message.py
+│   │   │   ├── negotiation.py
+│   │   │   └── task.py
+│   │   ├── api/
+│   │   │   ├── __init__.py
+│   │   │   └── health.py
+│   │   ├── __init__.py
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   └── main.py
+│   │
+│   ├── domains/
+│   │   ├── __init__.py
+│   │   └── warehouse/
+│   │       ├── __init__.py
+│   │       ├── agents/
+│   │       │   ├── __init__.py
+│   │       │   ├── order_agent.py
+│   │       │   ├── inventory_agent.py
+│   │       │   ├── picking_agent.py
+│   │       │   ├── packing_agent.py
+│   │       │   └── dock_agent.py
+│   │       ├── services/
+│   │       │   └── __init__.py
+│   │       ├── simulation/
+│   │       │   ├── __init__.py
+│   │       │   ├── order_generator.py
+│   │       │   └── seeder.py
+│   │       ├── models/
+│   │       │   ├── __init__.py
+│   │       │   ├── order.py
+│   │       │   ├── inventory_item.py
+│   │       │   └── dock.py
+│   │       ├── queue_engine/
+│   │       │   ├── __init__.py
+│   │       │   └── scorer.py
+│   │       └── api/
+│   │           ├── __init__.py
+│   │           └── routes.py
+│   │
+│   └── requirements.txt
+│
+├── frontend/
+│   ├── src/
+│   │   ├── core/
+│   │   │   ├── components/
+│   │   │   ├── dashboard/
+│   │   │   └── negotiation-viewer/
+│   │   ├── domains/
+│   │   │   └── warehouse/
+│   │   │       ├── components/
+│   │   │       └── views/
+│   │   └── app/
+│   ├── public/
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── next.config.js
+│
+├── docker-compose.yml
+├── .env.example
+├── .gitignore
+├── LICENSE
+└── README.md
 ```
 
 This project is scoped to a single domain — **warehouse fulfillment**. There is no airport domain, no second-domain UI, and no airport phase in the plan below.
@@ -170,9 +219,39 @@ pip install -r backend/requirements.txt
 cd frontend && npm install
 ```
 
+### 5. Run the backend
+
+From `backend/`:
+
+```bash
+uvicorn core.main:app --reload
+```
+
+On startup this creates the database tables, seeds synthetic simulation data (zones, SKUs, shelves, workers, packing stations, dock doors), connects to Redis, and starts all warehouse agents. Once ready:
+
+- API: http://localhost:8000
+- Docs (Swagger UI): http://localhost:8000/docs
+- WebSocket: ws://localhost:8000/ws/live
+
+### 6. Run the frontend
+
+From `frontend/`:
+
+```bash
+npm run dev
+```
+
+- Local: http://localhost:3000
+
+### Windows notes
+
+- `wsl --install` requires a reboot before Docker Desktop's WSL2 backend can start; if `docker ps` fails with a 500 error or "cannot find the file specified" right after installing WSL, reboot and relaunch Docker Desktop, then retry.
+- If `npm run dev` fails with `running scripts is disabled on this system` in PowerShell, either run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` from an elevated PowerShell, or run the command from `cmd.exe` instead, where this restriction doesn't apply.
+- To stop, `Ctrl+C` in each server's terminal, then `docker-compose down` (or `docker compose down`) from the project root to stop Postgres and Redis.
+
 ## Usage
 
-Run the backend and simulation, then open the frontend to watch the live dashboard — real-time KPIs, the dynamic priority queue, a zone heatmap, an agent activity feed, a negotiation viewer, worker status, and packing/dock monitors, all driven over WebSocket.
+Once the backend and frontend are running, open the frontend to watch the live dashboard — real-time KPIs, the dynamic priority queue, a zone heatmap, an agent activity feed, a negotiation viewer, worker status, and packing/dock monitors, all driven over WebSocket. Use the **Seed DB** and **Start Sim** controls on the dashboard to populate data and kick off the synthetic order stream.
 
 To compare scheduling policies, replay the same synthetic workload (same `SIMULATION_SEED`) once under FIFO and once under the dynamic priority queue, and diff the resulting metrics.
 
