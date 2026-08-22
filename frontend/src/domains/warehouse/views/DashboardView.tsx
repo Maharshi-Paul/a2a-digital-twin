@@ -543,6 +543,8 @@ export function DashboardView() {
   const [speed, setSpeed] = useState(1);
   const [alertsOn, setAlertsOn] = useState(true);
   const [comparison, setComparison] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   const {
     state, connected, connectionError, actionError, isSeeding, isStarting, seed, start, stop,
@@ -736,7 +738,7 @@ export function DashboardView() {
           </div>
         </div>
         <div className={styles.tnCenter}>
-          <div className={styles.clock}>{formatTime(now)}</div>
+          <div className={styles.clock}>{mounted ? formatTime(now) : "--:--:--"}</div>
           <div className={styles.speedControl}>
             {[1, 2, 4].map(s => (
               <button key={s} type="button" className={speed === s ? styles.speedActive : ""} onClick={() => setSpeed(s)}>{s}x</button>
