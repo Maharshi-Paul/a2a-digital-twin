@@ -18,7 +18,12 @@ export function SimulationControls() {
     }, []);
 
     useEffect(() => {
-        checkStatus();
+        // Defer the initial network request so this effect only establishes work,
+        // and the async response owns the resulting state update.
+        const timer = setTimeout(() => {
+            void checkStatus();
+        }, 0);
+        return () => clearTimeout(timer);
     }, [checkStatus]);
 
     const seedDB = async () => {

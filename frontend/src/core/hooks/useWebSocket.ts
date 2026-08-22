@@ -12,6 +12,7 @@ export function useWebSocket() {
     const [connected, setConnected] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectTimer = useRef<NodeJS.Timeout | null>(null);
+    const reconnectRef = useRef<() => void>(() => undefined);
 
     const connect = useCallback(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -51,11 +52,15 @@ export function useWebSocket() {
 
         ws.onclose = () => {
             setConnected(false);
-            reconnectTimer.current = setTimeout(connect, 3000);
+            reconnectTimer.current = setTimeout(() => reconnectRef.current(), 3000);
         };
 
         ws.onerror = () => ws.close();
     }, []);
+
+    useEffect(() => {
+        reconnectRef.current = connect;
+    }, [connect]);
 
     useEffect(() => {
         connect();

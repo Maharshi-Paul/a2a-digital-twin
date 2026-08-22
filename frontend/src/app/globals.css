@@ -1,89 +1,80 @@
-@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 :root {
-  --bg-primary: #0a0e1a;
-  --bg-secondary: #111827;
-  --bg-card: #1a1f2e;
-  --bg-card-hover: #222840;
-  --accent-primary: #6366f1;
-  --accent-secondary: #818cf8;
-  --accent-green: #10b981;
-  --accent-amber: #f59e0b;
-  --accent-red: #ef4444;
-  --accent-cyan: #06b6d4;
+  color-scheme: light;
+  --page-background: #f5f7fb;
+  --surface: #ffffff;
+  --surface-subtle: #f8fafc;
+  --surface-hover: #eef2ff;
+  --surface-raised: #ffffff;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --track: #e2e8f0;
+  --map-grid: rgba(100, 116, 139, .12);
+  --success: #059669;
+  --warning: #d97706;
+  --warning-text: #b45309;
+  --danger: #dc2626;
+  --danger-text: #b91c1c;
+  --info: #2563eb;
+  --card-shadow: 0 7px 22px rgba(15, 23, 42, .055);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --page-background: #0b1120;
+  --surface: #121b2e;
+  --surface-subtle: #172238;
+  --surface-hover: #202e4a;
+  --surface-raised: #111a2c;
   --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --border: #1e293b;
-  --glow: rgba(99, 102, 241, 0.15);
+  --text-secondary: #b4c1d5;
+  --text-muted: #7f8da3;
+  --border: #2a3954;
+  --border-strong: #3a4b69;
+  --track: #26334a;
+  --map-grid: rgba(148, 163, 184, .11);
+  --success: #34d399;
+  --warning: #fbbf24;
+  --warning-text: #fcd34d;
+  --danger: #fb7185;
+  --danger-text: #fda4af;
+  --info: #60a5fa;
+  --card-shadow: 0 12px 30px rgba(0, 0, 0, .2);
 }
 
 * {
-  scrollbar-width: thin;
-  scrollbar-color: #334155 transparent;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
 }
 
 body {
-  background: var(--bg-primary);
+  margin: 0;
   color: var(--text-primary);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: radial-gradient(circle at 12% -10%, rgba(37, 99, 235, .06), transparent 33rem), var(--page-background);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: background-color .25s ease, color .25s ease;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 8px rgba(99, 102, 241, 0.3); }
-  50% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.6); }
+html[data-theme="dark"] body {
+  background: radial-gradient(circle at 12% -10%, rgba(37, 99, 235, .09), transparent 33rem), var(--page-background);
 }
 
-@keyframes slide-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+button,
+input {
+  font: inherit;
 }
 
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.animate-slide-in {
-  animation: slide-in 0.3s ease-out;
-}
-
-.animate-fade-in {
-  animation: fade-in 0.5s ease-out;
-}
-
-.glow-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  transition: all 0.2s ease;
-}
-
-.glow-card:hover {
-  background: var(--bg-card-hover);
-  border-color: rgba(99, 102, 241, 0.3);
-  box-shadow: 0 0 15px rgba(99, 102, 241, 0.1);
-}
-
-.status-badge {
-  padding: 2px 10px;
-  border-radius: 9999px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.congestion-bar {
-  height: 6px;
-  border-radius: 3px;
-  background: #1e293b;
-  overflow: hidden;
-  position: relative;
-}
-
-.congestion-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.5s ease;
+button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--info) 45%, transparent);
+  outline-offset: 2px;
 }
