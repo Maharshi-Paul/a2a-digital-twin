@@ -80,3 +80,10 @@ export interface SimulationStatus {
     running: boolean;
     total_generated: number;
 }
+
+export interface DecisionCommentary {
+    order_id: number;
+    external_id: string;
+    commentary: string;
+    timestamp: string;
+}

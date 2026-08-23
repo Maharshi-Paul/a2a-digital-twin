@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import type { WSData } from "../types";
+import type { WSData, DecisionCommentary } from "../types";
 import { WS_URL } from "../api/client";
 
 /**
@@ -10,9 +10,26 @@ import { WS_URL } from "../api/client";
 export function useWebSocket() {
     const [data, setData] = useState<WSData | null>(null);
     const [connected, setConnected] = useState(false);
+    const [commentaries, setCommentaries] = useState<DecisionCommentary[]>([]);
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectTimer = useRef<NodeJS.Timeout | null>(null);
     const reconnectRef = useRef<() => void>(() => undefined);
+
+    const handleParsed = useCallback((parsed: Record<string, unknown>) => {
+        if (parsed.type === "state_update") {
+            setData(parsed as unknown as WSData);
+        } else if (parsed.type === "decision_commentary") {
+            setCommentaries((prev) => [
+                ...prev.slice(-9),
+                {
+                    order_id: parsed.order_id as number,
+                    external_id: parsed.external_id as string,
+                    commentary: parsed.commentary as string,
+                    timestamp: parsed.timestamp as string,
+                },
+            ]);
+        }
+    }, []);
 
     const connect = useCallback(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -26,22 +43,20 @@ export function useWebSocket() {
 
         ws.onmessage = (e) => {
             try {
-                const parsed: WSData =
+                const parsed =
                     e.data instanceof Blob
                         ? JSON.parse(
                             new TextDecoder().decode(e.data as unknown as ArrayBuffer)
                         )
                         : JSON.parse(e.data);
-                if (parsed.type === "state_update") {
-                    setData(parsed);
-                }
+                handleParsed(parsed);
             } catch {
                 // Handle binary orjson payloads from Blob
                 if (e.data instanceof Blob) {
                     (e.data as Blob).text().then((text) => {
                         try {
                             const parsed = JSON.parse(text);
-                            if (parsed.type === "state_update") setData(parsed);
+                            handleParsed(parsed);
                         } catch {
                             /* ignore malformed */
                         }
@@ -56,7 +71,7 @@ export function useWebSocket() {
         };
 
         ws.onerror = () => ws.close();
-    }, []);
+    }, [handleParsed]);
 
     useEffect(() => {
         reconnectRef.current = connect;
@@ -70,5 +85,5 @@ export function useWebSocket() {
         };
     }, [connect]);
 
-    return { data, connected };
+    return { data, connected, commentaries };
 }

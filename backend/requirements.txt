@@ -20,3 +20,6 @@ numpy>=2.2.1
 
 # WebSocket
 websockets>=14.1
+
+# LLM (optional – only used when LLM_PROVIDER=gemini)
+google-genai>=0.3.0

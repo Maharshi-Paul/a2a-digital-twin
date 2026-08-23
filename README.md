@@ -69,7 +69,7 @@ graph LR
 4. Every state change streams to **Firebase Firestore**, powering a **real-time mission-control dashboard** with live KPIs, zone heatmaps, agent activity feeds, and animated worker tracking.
 5. The same synthetic order stream can replay under **FIFO** and the **dynamic priority queue**, enabling direct policy comparison on identical workloads.
 
-> **Note:** Scheduling logic is intentionally **pure rule-based** — no LLM sits in the decision path. An inert `explain_decision()` hook exists for a possible future commentary layer but plays no role in any actual decision today.
+> **Note:** Scheduling logic is intentionally **pure rule-based** — no LLM sits in the decision path. An optional LLM-powered commentary layer can narrate decisions on the dashboard (set `LLM_PROVIDER=gemini`), but it is strictly read-only and never influences scoring or scheduling.
 
 ## Architecture
 
@@ -255,7 +255,23 @@ cp .env.example .env
 | `QUEUE_TICK_SECONDS` | `2.0` | Priority queue re-score interval |
 | `SIMULATION_SEED` | `42` | Reproducible simulation seed |
 | `SIMULATION_LAMBDA` | `3.0` | Poisson arrival rate (orders/tick) |
-| `LLM_PROVIDER` | `none` | LLM integration (unused in MVP) |
+| `LLM_PROVIDER` | `none` | `"none"` (default) or `"gemini"` to enable decision commentary |
+
+### Decision Commentary (optional)
+
+The dashboard can display short, LLM-generated explanations of why the rule engine prioritized each order. This is a **read-only narration layer** — it never influences scoring, priority, or negotiation outcomes.
+
+To enable it, add to your `.env`:
+
+```env
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your-api-key-here
+# LLM_MODEL=gemini-2.5-flash-lite      # default, fast + cheap
+# LLM_COMMENTARY_TIMEOUT_SECONDS=5.0   # fail-fast timeout
+# LLM_COMMENTARY_MAX_CONCURRENCY=3     # cap in-flight API calls
+```
+
+When `LLM_PROVIDER=none` (the default), the commentary layer is a complete no-op — no network calls, no errors.
 
 For the frontend, create `frontend/.env.local` with your Firebase credentials:
 
@@ -344,7 +360,7 @@ KPI improvements are only claimed once measured against the same workload — no
 
 | Current Limitation | Future Direction |
 |---|---|
-| Pure rule-based scoring (no ML/LLM) | Claude-based decision commentary layer via `explain_decision()` hook |
+| ~~Pure rule-based scoring (no ML/LLM)~~ | ✅ LLM-based decision commentary layer implemented via `explain_decision()` — read-only, never affects scheduling |
 | Synthetic workloads only | Real-world order data integration |
 | Single domain (warehouse) | Multi-domain support (airports, logistics hubs) |
 | Dock agent is optional/unused | Full dock management with courier integration |

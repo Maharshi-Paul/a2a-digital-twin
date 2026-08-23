@@ -25,6 +25,9 @@ class Settings(BaseSettings):
 
     # ── Queue Engine ───────────────────────────────────────────────────
     queue_tick_seconds: float = 2.0
+    queue_engine_mode: str = "rule_based"  # "rule_based" | "llm_batch"
+    llm_rerank_timeout_seconds: float = 1.0  # ~50% of queue_tick_seconds
+    llm_rerank_max_orders: int = 50  # safety cap; fallback if exceeded
 
     # ── Priority Weights ───────────────────────────────────────────────
     w_sla_risk: float = 0.35
@@ -45,6 +48,10 @@ class Settings(BaseSettings):
 
     # ── LLM ────────────────────────────────────────────────────────────
     llm_provider: str = "none"
+    gemini_api_key: str | None = None
+    llm_model: str = "gemini-2.5-flash-lite"
+    llm_commentary_timeout_seconds: float = 5.0
+    llm_commentary_max_concurrency: int = 3
 
 
 settings = Settings()

@@ -155,3 +155,16 @@ async def broadcast_agent_event(event: dict) -> None:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         **event,
     })
+
+
+async def broadcast_decision_commentary(
+    order_id: int, external_id: str, commentary: str,
+) -> None:
+    """Push a Claude-generated decision commentary to all WebSocket clients."""
+    await manager.broadcast_json({
+        "type": "decision_commentary",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "order_id": order_id,
+        "external_id": external_id,
+        "commentary": commentary,
+    })

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { firebaseConfigured } from "@/lib/firebase";
 import { useWarehouseTwin } from "../hooks/useWarehouseTwin";
+import { useWebSocket } from "@/core/hooks/useWebSocket";
+import type { DecisionCommentary } from "@/core/types";
 import {
   getBusynessLabel,
   getLoadPercent,
@@ -406,7 +408,7 @@ function QueueCard({ zone, rank }: { zone: ZoneRecord; rank: number }) {
 }
 
 /* ============================== AI DECISION ENGINE ============================== */
-function DecisionEngine({ zone }: { zone?: ZoneRecord }) {
+function DecisionEngine({ zone, commentary }: { zone?: ZoneRecord; commentary?: DecisionCommentary }) {
   if (!zone) return <p className={styles.panelEmpty}>Waiting for zone data…</p>;
   const busyness = getZoneBusyness(zone);
   const reasons = [
@@ -434,6 +436,38 @@ function DecisionEngine({ zone }: { zone?: ZoneRecord }) {
         <span>Simulation tick</span>
         <b>{zone.activeTasks} tasks</b>
       </div>
+      {commentary && (
+        <div
+          style={{
+            marginTop: 10,
+            padding: "8px 10px",
+            borderRadius: 8,
+            background: "rgba(168, 85, 247, 0.06)",
+            border: "1px solid rgba(168, 85, 247, 0.2)",
+            fontSize: 11,
+            lineHeight: 1.45,
+            color: "rgba(255,255,255,0.8)",
+            animation: "fadeIn 0.4s ease",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              marginBottom: 4,
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase" as const,
+              color: C.purple,
+            }}
+          >
+            <Bot size={10} /> AI Explanation · {commentary.external_id}
+          </div>
+          {commentary.commentary}
+        </div>
+      )}
     </div>
   );
 }
@@ -549,6 +583,10 @@ export function DashboardView() {
   const {
     state, connected, connectionError, actionError, isSeeding, isStarting, seed, start, stop,
   } = useWarehouseTwin();
+
+  // WebSocket connection for live commentary events
+  const { commentaries } = useWebSocket();
+  const latestCommentary = commentaries.length > 0 ? commentaries[commentaries.length - 1] : undefined;
 
   // Apply theme
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
@@ -860,7 +898,7 @@ export function DashboardView() {
         {/* Right: AI Decision Engine */}
         <aside className={styles.panel}>
           <div className={styles.panelHead}><Sparkles size={14} color={C.purple} /><span>AI Decision Engine</span></div>
-          <DecisionEngine zone={busiestZone} />
+          <DecisionEngine zone={busiestZone} commentary={latestCommentary} />
         </aside>
 
         {/* Bottom Left: Agent Chat */}

@@ -49,6 +49,8 @@ class ScoredOrder:
     congestion_factor: float
     packing_factor: float
     breakdown: dict = field(default_factory=dict)
+    ranked_by: str = "rules"  # "rules" or "llm" (when batch reranked)
+    llm_reason: str = ""  # short reasoning from LLM (empty when rule-based)
 
 
 def score_order(
