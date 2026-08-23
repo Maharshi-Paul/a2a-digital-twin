@@ -14,6 +14,7 @@
   <img src="https://img.shields.io/badge/Next.js-16+-000000?logo=next.js&logoColor=white" alt="Next.js" />
   <img src="https://img.shields.io/badge/PostgreSQL-16-4169e1?logo=postgresql&logoColor=white" alt="PostgreSQL" />
   <img src="https://img.shields.io/badge/Redis-7-dc382d?logo=redis&logoColor=white" alt="Redis" />
+  <img src="https://img.shields.io/badge/Gemini_API-optional-8e75b2?logo=googlegemini&logoColor=white" alt="Gemini API" />
   <img src="https://img.shields.io/badge/Firebase-Firestore-ffca28?logo=firebase&logoColor=black" alt="Firebase" />
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License" />
 </p>
@@ -66,47 +67,59 @@ graph LR
 1. **Orders arrive** through an ingestion API and are handed to the **Order Coordinator Agent**.
 2. The Coordinator **scores and re-scores** orders continuously against a dynamic priority queue — factoring in SLA risk, inventory state, and current pick/pack load.
 3. **Inventory**, **Picking**, and **Packing & Dispatch** agents negotiate task assignment over an **A2A message bus**, each exposing and consuming warehouse state through a standardized **MCP-style tool layer**.
-4. Every state change streams to **Firebase Firestore**, powering a **real-time mission-control dashboard** with live KPIs, zone heatmaps, agent activity feeds, and animated worker tracking.
-5. The same synthetic order stream can replay under **FIFO** and the **dynamic priority queue**, enabling direct policy comparison on identical workloads.
+4. Every state change streams to **Firebase Firestore** and over a live **WebSocket** channel, powering a **real-time mission-control dashboard** with live KPIs, zone heatmaps, agent activity feeds, and animated worker tracking.
+5. The same synthetic order stream can replay under **FIFO**, the **rule-based dynamic priority queue**, and an **optional LLM-assisted re-ranking mode**, enabling direct policy comparison on identical workloads.
 
-> **Note:** Scheduling logic is intentionally **pure rule-based** — no LLM sits in the decision path. An optional LLM-powered commentary layer can narrate decisions on the dashboard (set `LLM_PROVIDER=gemini`), but it is strictly read-only and never influences scoring or scheduling.
+> **Note:** The default scheduling policy is **pure rule-based** — no LLM sits in the decision path. Two opt-in, fail-safe LLM integrations are available on top of it (see [LLM-Assisted Features](#llm-assisted-features-optional)): a **read-only decision commentary layer** that narrates scoring decisions without ever influencing them, and an **opt-in batch re-ranking mode** that lets an LLM re-order the priority queue once per tick, with a hard timeout and automatic fallback to the rule-based scorer on any failure. Both are off by default (`LLM_PROVIDER=none`, `QUEUE_ENGINE_MODE=rule_based`) and require zero configuration to run the core simulation.
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                      FRONTEND (Next.js 16)                   │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────┐ │
-│  │ KPI Cards   │  │ Warehouse Map│  │ Agent Chat / Alerts │ │
-│  │ Zone Index  │  │ (SVG Canvas) │  │ Live Analytics      │ │
-│  └──────┬──────┘  └──────┬───────┘  └──────────┬──────────┘ │
-│         └────────────────┼─────────────────────┘            │
-│                    🔥 Firestore Realtime Sync                │
-└──────────────────────────┬───────────────────────────────────┘
-                           │
-┌──────────────────────────┼───────────────────────────────────┐
-│                   BACKEND (FastAPI)                           │
-│                          │                                    │
-│  ┌───────────────────────┴───────────────────────────────┐   │
-│  │               core/  (Framework Layer)                 │   │
-│  │  ┌─────────┐ ┌─────────┐ ┌──────────┐ ┌───────────┐  │   │
-│  │  │  A2A    │ │  MCP    │ │  Queue   │ │   Models  │  │   │
-│  │  │  Bus    │ │Registry │ │  Engine  │ │  & Config │  │   │
-│  │  └────┬────┘ └────┬────┘ └────┬─────┘ └───────────┘  │   │
-│  └───────┼───────────┼──────────┼────────────────────────┘   │
-│          │           │          │                              │
-│  ┌───────┼───────────┼──────────┼────────────────────────┐   │
-│  │       domains/warehouse/  (Business Logic)             │   │
-│  │  ┌────┴────┐ ┌────┴────┐ ┌───┴──────┐ ┌───────────┐  │   │
-│  │  │ Agents  │ │  MCP    │ │  Scorer  │ │Simulation │  │   │
-│  │  │ (4+1)   │ │ Tools   │ │  Engine  │ │  Seeder   │  │   │
-│  │  └────┬────┘ └────┬────┘ └────┬─────┘ └─────┬─────┘  │   │
-│  └───────┼───────────┼──────────┼──────────────┼─────────┘   │
-│          │           │          │              │               │
-│     ┌────┴───────────┴──────────┴──────────────┴─────┐       │
-│     │        PostgreSQL 16  ·  Redis 7               │       │
-│     └────────────────────────────────────────────────┘       │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph FE["FRONTEND — Next.js 16"]
+        KPI["KPI Cards<br/>Zone Index"]
+        MAP["Warehouse Map<br/>(SVG Canvas)"]
+        CHAT["Agent Chat / Alerts<br/>Live Analytics"]
+    end
+
+    SYNC(["🔥 Firestore Sync  ·  🔌 WebSocket Live"])
+
+    subgraph BE["BACKEND — FastAPI"]
+        subgraph CORE["core/ — Framework Layer"]
+            A2A["A2A Bus"]
+            MCPR["MCP Registry"]
+            QE["Queue Engine"]
+            MODELS["Models & Config"]
+        end
+
+        subgraph DOMAIN["domains/warehouse/ — Business Logic"]
+            AGENTS["Agents (4+1)"]
+            MCPT["MCP Tools"]
+            SCORER["Scorer Engine"]
+            SIM["Simulation Seeder"]
+            LLM["llm_reranker<br/><i>(optional)</i>"]
+        end
+
+        DB[("PostgreSQL 16 · Redis 7")]
+    end
+
+    KPI --> SYNC
+    MAP --> SYNC
+    CHAT --> SYNC
+    SYNC --> A2A
+    SYNC --> QE
+
+    A2A --> AGENTS
+    MCPR --> MCPT
+    QE --> SCORER
+    QE -.optional.-> LLM
+    MODELS --> DB
+
+    AGENTS --> DB
+    MCPT --> DB
+    SCORER --> DB
+    SIM --> DB
+    LLM -.-> SCORER
 ```
 
 ## Agents
@@ -123,13 +136,32 @@ graph LR
 
 - **🔄 Dynamic Priority Queue** — Orders scored and re-ranked in real-time based on SLA risk, inventory readiness, aisle congestion, and packing capacity
 - **🤖 Multi-Agent Negotiation** — Autonomous agents communicate over A2A protocol, negotiating task assignment without central orchestration
+- **🧠 Optional LLM-Assisted Scheduling** — Two independent, opt-in, fail-safe integrations: read-only decision commentary and batch queue re-ranking (see below), both defaulting to off
 - **🗺️ Interactive Warehouse Map** — Animated SVG floor plan with zone heatmaps, compartment labeling (A-1 through D-6), worker tracking, packing stations, and dispatch dock
 - **📊 Real-Time Dashboard** — 9 live KPIs with sparkline trends, zone busyness index, throughput vs. FIFO comparison charts, and congestion analytics
 - **💬 Agent Activity Feed** — Live chat-style feed showing inter-agent communications and decision rationale
-- **🔥 Firebase Firestore Sync** — Bi-directional real-time state synchronization between backend simulation and frontend
+- **🔥 Real-Time Sync** — Firebase Firestore and a native WebSocket channel keep the dashboard in sync with backend simulation state
 - **🎮 Simulation Controls** — Start/stop simulation, seed database, and adjust simulation speed (1×/2×/4×) from the dashboard
 - **🌗 Light/Dark Theme** — Full theme support with premium glassmorphism aesthetics
 - **🔔 Alert System** — Real-time toast notifications for congestion events, SLA risks, and worker status changes
+
+## LLM-Assisted Features (Optional)
+
+Both features below use the **Gemini API** and are strictly **opt-in** — the simulation runs identically without them, and both are designed to fail safely back to pure rule-based behavior on any error, timeout, or misconfiguration.
+
+### Decision Commentary
+A short, natural-language explanation of why the rule engine prioritized the top order each tick, shown on the dashboard. **Read-only** — it narrates a decision already made and never feeds back into scoring.
+
+### Batch Re-Ranking
+An opt-in `llm_batch` queue engine mode. Once per tick, all pending orders are sent to Gemini in a **single API call** and a full re-ranked ordering is returned, tagged `ranked_by: "llm"` alongside per-order reasoning. Safety properties:
+
+- **One API call per tick, never per order** — keeps cost and latency bounded regardless of queue size
+- **Hard timeout** (`LLM_RERANK_TIMEOUT_SECONDS`) — any call that doesn't return in time is abandoned for that tick
+- **Order-count safety cap** (`LLM_RERANK_MAX_ORDERS`) — a tick with more pending orders than this falls back to rule-based scoring rather than sending an unbounded batch
+- **Strict response validation** — the returned ID set must exactly match the submitted orders (no missing, extra, or duplicate IDs) or the response is rejected
+- **Automatic fallback** — on any timeout, malformed response, or API error, that tick scores with the same rule-based engine used by default, and a running fallback-rate metric is exposed for observability
+
+> **Free-tier note:** Google's Gemini free tier enforces a per-minute request quota. With both features enabled, a fast tick interval can exceed it, causing more frequent fallback. If you see this, either raise `QUEUE_TICK_SECONDS` or reduce concurrent LLM calls — the system will keep running correctly either way, just with more ticks landing on the rule-based fallback path.
 
 ## Tech Stack
 
@@ -140,7 +172,8 @@ graph LR
 | **State Access** | MCP-style tool registry |
 | **Database** | PostgreSQL 16 (via SQLAlchemy + asyncpg) |
 | **Cache & Pub/Sub** | Redis 7 |
-| **Real-Time Sync** | Firebase Firestore |
+| **Real-Time Sync** | Firebase Firestore + native WebSocket |
+| **LLM Provider (optional)** | Google Gemini API (`google-genai` SDK) |
 | **Frontend** | Next.js 16 (Turbopack) + TypeScript |
 | **Charting** | Recharts (Area, Line, Bar charts) |
 | **Icons** | Lucide React |
@@ -167,13 +200,16 @@ a2a-digital-twin/
 │   ├── domains/
 │   │   └── warehouse/                 # Warehouse business logic
 │   │       ├── agents/                #   Order, Inventory, Picking, Packing, Dock agents
-│   │       ├── api/                   #   Warehouse-specific REST routes
+│   │       ├── api/                   #   Warehouse-specific REST routes + WebSocket
 │   │       ├── mcp/                   #   Warehouse MCP tools
 │   │       ├── models/                #   Order, InventoryItem, Dock models
-│   │       ├── queue_engine/          #   Dynamic priority scorer
-│   │       ├── services/              #   Business logic services
+│   │       ├── queue_engine/          #   Dynamic priority scorer, FIFO baseline,
+│   │       │                          #     optional llm_reranker.py
+│   │       ├── services/              #   Business logic services incl.
+│   │       │                          #     decision_commentary.py (optional)
 │   │       └── simulation/            #   Order generator & database seeder
 │   │
+│   ├── tests/                         #   Unit tests (incl. LLM fallback coverage)
 │   └── requirements.txt
 │
 ├── frontend/
@@ -186,7 +222,7 @@ a2a-digital-twin/
 │   │   │   ├── api/                   #   API client utilities
 │   │   │   ├── components/            #   Reusable UI components
 │   │   │   ├── dashboard/             #   Dashboard framework
-│   │   │   ├── hooks/                 #   Shared React hooks
+│   │   │   ├── hooks/                 #   Shared React hooks, incl. useWebSocket
 │   │   │   ├── negotiation-viewer/    #   Agent negotiation visualizer
 │   │   │   └── types/                 #   TypeScript type definitions
 │   │   ├── domains/
@@ -204,7 +240,7 @@ a2a-digital-twin/
 │   └── next.config.ts
 │
 ├── docker-compose.yml                 # PostgreSQL 16 + Redis 7
-├── .env.example                       # Environment template
+├── .env.example                       # Environment template (no real secrets)
 ├── CONTRIBUTORS.md
 ├── LICENSE
 └── README.md
@@ -218,6 +254,7 @@ a2a-digital-twin/
 - **Python 3.12+**
 - **Node.js 18+** and npm
 - **Firebase project** (for Firestore real-time sync)
+- **Gemini API key** _(optional — only needed for LLM-assisted features, free tier available at [aistudio.google.com](https://aistudio.google.com/apikey))_
 
 ### 1. Clone the repository
 
@@ -241,10 +278,10 @@ docker ps
 
 ### 3. Configure environment
 
-Copy `.env.example` to `.env` at the project root:
+The backend reads its `.env` file relative to wherever `uvicorn` is launched from — so create it **inside `backend/`**, not just at the project root:
 
 ```bash
-cp .env.example .env
+cp .env.example backend/.env
 ```
 
 | Variable | Default | Description |
@@ -252,26 +289,34 @@ cp .env.example .env
 | `DOMAIN` | `warehouse` | Active domain |
 | `DATABASE_URL` | `postgresql+asyncpg://wdt_user:wdt_pass@localhost:5432/warehouse_twin` | PostgreSQL connection |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
-| `QUEUE_TICK_SECONDS` | `2.0` | Priority queue re-score interval |
+| `QUEUE_TICK_SECONDS` | `2.0`–`5.0` | Priority queue re-score interval. Raise this if using LLM-assisted features — a real network round trip needs more headroom than the pure rule-based default |
 | `SIMULATION_SEED` | `42` | Reproducible simulation seed |
 | `SIMULATION_LAMBDA` | `3.0` | Poisson arrival rate (orders/tick) |
-| `LLM_PROVIDER` | `none` | `"none"` (default) or `"gemini"` to enable decision commentary |
+| `LLM_PROVIDER` | `none` | `"none"` (default) or `"gemini"` to enable LLM-assisted features |
+| `QUEUE_ENGINE_MODE` | `rule_based` | `"rule_based"` (default) or `"llm_batch"` to enable batch re-ranking |
 
-### Decision Commentary (optional)
+> ⚠️ Never commit a real `.env` — only `.env.example` (with placeholder values) belongs in git. GitHub's push protection will block a push containing a real key, but don't rely on that as your only safeguard — always double-check `git status` before committing, and confirm `.env` is covered by `.gitignore`.
 
-The dashboard can display short, LLM-generated explanations of why the rule engine prioritized each order. This is a **read-only narration layer** — it never influences scoring, priority, or negotiation outcomes.
+### LLM-Assisted Features (optional)
 
-To enable it, add to your `.env`:
+Both the decision commentary layer and batch re-ranking mode share the same Gemini configuration. To enable either or both, add to `backend/.env`:
 
 ```env
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=your-api-key-here
-# LLM_MODEL=gemini-2.5-flash-lite      # default, fast + cheap
-# LLM_COMMENTARY_TIMEOUT_SECONDS=5.0   # fail-fast timeout
-# LLM_COMMENTARY_MAX_CONCURRENCY=3     # cap in-flight API calls
+LLM_MODEL=gemini-3.5-flash-lite       # verify current free-tier model name — these are periodically retired
+
+# Decision commentary (read-only narration)
+# LLM_COMMENTARY_TIMEOUT_SECONDS=5.0
+# LLM_COMMENTARY_MAX_CONCURRENCY=3
+
+# Batch re-ranking (opt-in, affects scheduling — requires QUEUE_ENGINE_MODE=llm_batch)
+QUEUE_ENGINE_MODE=llm_batch
+LLM_RERANK_TIMEOUT_SECONDS=3.0
+LLM_RERANK_MAX_ORDERS=50
 ```
 
-When `LLM_PROVIDER=none` (the default), the commentary layer is a complete no-op — no network calls, no errors.
+When `LLM_PROVIDER=none` (the default) or `QUEUE_ENGINE_MODE=rule_based` (the default), both features are complete no-ops — no network calls, no errors, identical behavior to the pure rule-based engine.
 
 For the frontend, create `frontend/.env.local` with your Firebase credentials:
 
@@ -284,7 +329,7 @@ NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
 NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
 ```
 
-> **⚠️ Do not commit `.env` or `frontend/.env.local` — they contain secrets.**
+> **⚠️ Do not commit `backend/.env` or `frontend/.env.local` — they contain secrets.**
 
 ### 4. Install dependencies
 
@@ -330,19 +375,19 @@ Dashboard available at **http://localhost:3000**.
 
 1. Open **http://localhost:3000** — the mission-control dashboard loads.
 2. Click **DB** (Seed Database) to populate zones, SKUs, shelves, workers, and packing stations.
-3. Click **Sim** (Start Simulation) to begin the synthetic order stream.
+3. Click **Sim** (Start Simulation) to begin the synthetic order stream. (Can also be triggered via `POST /api/simulation/start` in the Swagger docs.)
 4. Watch in real-time:
    - **KPI strip** — 9 live metrics with sparkline trends and animated counters
    - **Zone Busyness Index** — per-zone congestion with color-coded severity
    - **Warehouse Map** — interactive SVG with shelf heatmaps, worker positions, packing stations, and dispatch dock
    - **Agent Chat** — live inter-agent communication feed
    - **Analytics** — throughput (AI vs FIFO), congestion, and SLA charts
-   - **Priority Queue** — dynamically re-ranked zone cards
+   - **Priority Queue** — dynamically re-ranked zone cards, tagged with `ranked_by: rules` or `llm` when batch re-ranking is active
    - **AI Decision Engine** — real-time reasoning breakdown for the busiest zone
 5. Use **speed controls** (1×/2×/4×) to accelerate simulation.
 6. Toggle **dark/light theme** and **alerts** from the top navigation.
 
-To **compare scheduling policies**, replay the same seed (`SIMULATION_SEED=42`) under FIFO and the dynamic queue, then diff the resulting metrics.
+To **compare scheduling policies**, replay the same seed (`SIMULATION_SEED=42`) under FIFO, the rule-based dynamic queue, and (if configured) `llm_batch`, then diff the resulting metrics.
 
 ## Validation Targets
 
@@ -355,12 +400,14 @@ KPI improvements are only claimed once measured against the same workload — no
 | Picker Utilization | Worker active-time vs. idle-time ratio |
 | SLA Breach Rate | Percentage of orders exceeding SLA window |
 | Packing Bottleneck | Queue depth at packing stations |
+| LLM Fallback Rate | _(when `llm_batch` enabled)_ Fraction of ticks where re-ranking failed and rule-based scoring was used instead |
 
 ## Known Limitations & Future Scope
 
 | Current Limitation | Future Direction |
 |---|---|
-| ~~Pure rule-based scoring (no ML/LLM)~~ | ✅ LLM-based decision commentary layer implemented via `explain_decision()` — read-only, never affects scheduling |
+| ~~Pure rule-based scoring only~~ | ✅ Optional LLM decision commentary (`explain_decision()`) and opt-in batch re-ranking (`llm_batch`) implemented — both fail safe to rule-based behavior |
+| Gemini free-tier rate limits can cause frequent fallback under fast tick intervals | Configurable backoff/queueing, or a paid-tier deployment profile |
 | Synthetic workloads only | Real-world order data integration |
 | Single domain (warehouse) | Multi-domain support (airports, logistics hubs) |
 | Dock agent is optional/unused | Full dock management with courier integration |
