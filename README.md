@@ -66,9 +66,14 @@ graph LR
 
 1. **Orders arrive** through an ingestion API and are handed to the **Order Coordinator Agent**.
 2. The Coordinator **scores and re-scores** orders continuously against a dynamic priority queue — factoring in SLA risk, inventory state, and current pick/pack load.
-3. **Inventory**, **Picking**, and **Packing & Dispatch** agents negotiate task assignment over an **A2A message bus**, each exposing and consuming warehouse state through a standardized **MCP-style tool layer**.
-4. Every state change streams to **Firebase Firestore** and over a live **WebSocket** channel, powering a **real-time mission-control dashboard** with live KPIs, zone heatmaps, agent activity feeds, and animated worker tracking.
+3. **Inventory**, **Picking**, and **Packing & Dispatch** agents negotiate task assignment over an **A2A message bus** (Redis Pub/Sub), each exposing and consuming warehouse state through a standardized **MCP-style tool layer**.
+4. Every state change streams over a live **WebSocket** channel (`/ws/live`) and REST API, powering a **real-time mission-control dashboard** with live KPIs, queue rankings, agent conversation feeds, and worker tracking.
 5. The same synthetic order stream can replay under **FIFO**, the **rule-based dynamic priority queue**, and an **optional LLM-assisted re-ranking mode**, enabling direct policy comparison on identical workloads.
+
+> **Data Authenticity Guarantee:**
+> - **Real Backend State (100%):** Order queues, SLA breach calculations, 5-factor priority scores, inter-agent messages on the A2A bus, PostgreSQL entity records, and Redis pub/sub streams are calculated entirely by the backend and broadcast over native WebSockets.
+> - **Visual Floorplan (Facility Presentation):** The 2D SVG warehouse layout maps real PostgreSQL zone congestion metrics and worker positions onto a facility canvas.
+> - **No Cloud Lock-In:** Firebase is completely optional. The dashboard operates natively over the FastAPI backend WebSocket without requiring Firebase or Firestore credentials.
 
 > **Note:** The default scheduling policy is **pure rule-based** — no LLM sits in the decision path. Two opt-in, fail-safe LLM integrations are available on top of it (see [LLM-Assisted Features](#llm-assisted-features-optional)): a **read-only decision commentary layer** that narrates scoring decisions without ever influencing them, and an **opt-in batch re-ranking mode** that lets an LLM re-order the priority queue once per tick, with a hard timeout and automatic fallback to the rule-based scorer on any failure. Both are off by default (`LLM_PROVIDER=none`, `QUEUE_ENGINE_MODE=rule_based`) and require zero configuration to run the core simulation.
 
@@ -370,6 +375,48 @@ Dashboard available at **http://localhost:3000**.
 - If Docker fails after installing WSL, **reboot first** before launching Docker Desktop.
 - If PowerShell blocks scripts: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
 - To stop everything: `Ctrl+C` in each terminal, then `docker compose down` from the project root.
+
+---
+
+## Cloud Deployment Guide
+
+The architecture supports a zero-cost free-tier deployment across **Vercel** (Frontend) and **Render** (Backend) with managed **Neon** (PostgreSQL) and **Upstash / Render Key Value** (Redis):
+
+### 1. Database — Neon PostgreSQL
+1. Create a free project at [neon.tech](https://neon.tech) or initialize using the Neon CLI:
+   ```bash
+   neon init -y --org-id <org-id> --project-id <project-id> --branch production --services postgres
+   neon deploy
+   ```
+2. Neon automatically configures `neon.ts` and syncs credentials into `.env`:
+   - `DATABASE_URL`: Pooled connection string with PgBouncer for general application queries.
+   - `DATABASE_URL_UNPOOLED`: Direct connection string for DDL schema creation and migrations.
+3. The backend automatically sets `statement_cache_size=0` for PgBouncer pooler compatibility, normalizes asyncpg DSN protocols, and strips incompatible parameters (`sslmode`, `channel_binding`) while securing the connection via SSLContext.
+
+### 2. Redis — Upstash Redis or Render Key Value
+1. **Option A (Render Key Value Store):** Create a free Key Value instance directly inside your Render dashboard (same private network, low latency).
+2. **Option B (Upstash Redis):** Create a database at [upstash.com](https://upstash.com). Copy the `rediss://` URL with TLS token.
+3. The backend automatically sets `ssl_cert_reqs=None` when connecting to `rediss://` endpoints and manages connection limits.
+
+### 3. Backend — Render Web Service
+1. Create a **New Web Service** connected to your repository on [render.com](https://render.com).
+2. Choose **Docker** as the runtime.
+   - Root Directory: `backend` (or leave root with the provided `Dockerfile`).
+3. Set Environment Variables:
+   - `DATABASE_URL`: Your Neon connection string
+   - `REDIS_URL`: Your Redis connection string (`redis://` or `rediss://`)
+   - `CORS_ORIGINS`: Your Vercel frontend URL (e.g. `https://your-app.vercel.app`)
+   - `FRONTEND_URL`: Your Vercel URL
+   - `QUEUE_TICK_SECONDS`: `10.0`
+4. The backend binds to `0.0.0.0` on `$PORT` with a non-root user and 1 worker process.
+
+### 4. Frontend — Vercel
+1. Import the repository on [vercel.com](https://vercel.com).
+2. Set Root Directory to `frontend`.
+3. Set Environment Variables:
+   - `NEXT_PUBLIC_API_URL`: Your Render backend URL (e.g. `https://a2a-backend.onrender.com`).
+   - `NEXT_PUBLIC_WS_URL`: (Optional) Automatically resolves to `wss://a2a-backend.onrender.com/ws/live`.
+4. Deploy! When opened, the frontend pings `/health` and smoothly guides through cold starts.
 
 ## Usage
 

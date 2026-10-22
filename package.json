@@ -1,0 +1,13 @@
+{
+  "name": "a2a-digital-twin",
+  "scripts": {
+    "build": "npm --prefix frontend run build",
+    "start": "npm --prefix frontend run start"
+  },
+  "dependencies": {
+    "@neon/config": "^1.9.3",
+    "@neon/env": "^1.6.4",
+    "@neondatabase/serverless": "^1.2.0",
+    "dotenv": "^18.0.8"
+  }
+}

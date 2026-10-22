@@ -7,24 +7,38 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "../.env", "backend/.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
     # ── Database ───────────────────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://wdt_user:wdt_pass@localhost:5432/warehouse_twin"
+    database_url_unpooled: str | None = None
+    neon_branch: str | None = None
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
+    db_pool_recycle: int = 300
+    db_pool_pre_ping: bool = True
+    db_ssl: bool | None = None
+    db_statement_cache_size: int = 0
 
     # ── Redis ──────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
+    redis_max_connections: int = 10
+    redis_ssl_cert_reqs: str = "none"
 
     # ── API ────────────────────────────────────────────────────────────
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     cors_origins: str = "http://localhost:3000"
+    frontend_url: str | None = None
+    cors_origin_regex: str | None = r"^https:\/\/.*\.vercel\.app$"
+    admin_token: str | None = None
 
     # ── Queue Engine ───────────────────────────────────────────────────
-    queue_tick_seconds: float = 2.0
+    queue_tick_seconds: float = 10.0
+    queue_engine_idle_when_empty: bool = True
     queue_engine_mode: str = "rule_based"  # "rule_based" | "llm_batch"
     llm_rerank_timeout_seconds: float = 1.0  # ~50% of queue_tick_seconds
     llm_rerank_max_orders: int = 50  # safety cap; fallback if exceeded

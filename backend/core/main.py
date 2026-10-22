@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
-from core.database import async_session_factory, engine
+from core.database import async_session_factory, engine, unpooled_engine
 from core.models.base import Base
 
 # Import all models so SQLAlchemy registers them
@@ -70,8 +70,8 @@ async def lifespan(app: FastAPI):
     logger.info("  WAREHOUSE DIGITAL TWIN — Starting...")
     logger.info("=" * 60)
 
-    # 1. Create database tables
-    async with engine.begin() as conn:
+    # 1. Create database tables (using unpooled engine for DDL per Neon best practices)
+    async with unpooled_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created")
 
@@ -134,6 +134,7 @@ async def lifespan(app: FastAPI):
         await agent.stop()
     await bus.disconnect()
     await engine.dispose()
+    await unpooled_engine.dispose()
     logger.info("Warehouse Digital Twin stopped.")
 
 
@@ -147,9 +148,17 @@ app = FastAPI(
 )
 
 # CORS
+cors_list = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+if settings.frontend_url:
+    for u in settings.frontend_url.split(","):
+        u_clean = u.strip()
+        if u_clean and u_clean not in cors_list:
+            cors_list.append(u_clean)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins.split(","),
+    allow_origins=cors_list,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

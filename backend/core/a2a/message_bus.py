@@ -27,8 +27,12 @@ BROADCAST_CHANNEL = "agent:broadcast"
 class MessageBus:
     """Centralized Redis Pub/Sub message bus for A2A communication."""
 
-    def __init__(self, redis_url: str) -> None:
+    def __init__(self, redis_url: str, max_connections: int | None = None) -> None:
         self._redis_url = redis_url
+        if max_connections is None:
+            from core.config import settings
+            max_connections = settings.redis_max_connections
+        self._max_connections = max_connections
         self._redis: aioredis.Redis | None = None
         self._pubsub: aioredis.client.PubSub | None = None
         self._handlers: dict[str, list[HandlerFunc]] = {}
@@ -40,13 +44,19 @@ class MessageBus:
 
     async def connect(self) -> None:
         """Establish Redis connection and Pub/Sub client."""
+        redis_kwargs: dict[str, Any] = {
+            "decode_responses": False,
+            "max_connections": self._max_connections,
+        }
+        if self._redis_url.startswith("rediss://"):
+            redis_kwargs["ssl_cert_reqs"] = None
+
         self._redis = aioredis.from_url(
             self._redis_url,
-            decode_responses=False,
-            max_connections=50,
+            **redis_kwargs,
         )
         self._pubsub = self._redis.pubsub(ignore_subscribe_messages=True)
-        logger.info("MessageBus connected to Redis at %s", self._redis_url)
+        logger.info("MessageBus connected to Redis at %s (max_conn=%d)", self._redis_url, self._max_connections)
 
     async def disconnect(self) -> None:
         """Gracefully shut down listener and close connections."""
