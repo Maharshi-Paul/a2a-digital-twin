@@ -147,9 +147,17 @@ app = FastAPI(
 )
 
 # CORS
+cors_list = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+if settings.frontend_url:
+    for u in settings.frontend_url.split(","):
+        u_clean = u.strip()
+        if u_clean and u_clean not in cors_list:
+            cors_list.append(u_clean)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins.split(","),
+    allow_origins=cors_list,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

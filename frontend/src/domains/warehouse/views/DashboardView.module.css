@@ -144,6 +144,33 @@
   background: rgba(16, 185, 129, 0.08);
 }
 
+.liveWaking {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 24px 0;
+  padding: 10px 16px;
+  border-radius: var(--radiusSm);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  font-size: 13px;
+  font-weight: 500;
+  backdrop-filter: blur(12px);
+}
+
+.noticeWake {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+}
+
 .liveDot {
   width: 6px;
   height: 6px;

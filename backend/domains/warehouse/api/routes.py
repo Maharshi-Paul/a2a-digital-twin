@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import settings
 from core.database import get_session
 from core.models.decision_log import DecisionRecord, NegotiationTrace
 from domains.warehouse.models.order import OrderStatus
@@ -109,7 +110,13 @@ async def agent_logs(
 
 # ── Simulation Controls ────────────────────────────────────────────────
 
-@router.post("/simulation/seed")
+async def verify_admin_token(x_admin_token: str | None = Header(None)) -> None:
+    """Optional shared-secret verification when ADMIN_TOKEN is set in environment."""
+    if settings.admin_token and x_admin_token != settings.admin_token:
+        raise HTTPException(status_code=401, detail="Invalid or missing X-Admin-Token header")
+
+
+@router.post("/simulation/seed", dependencies=[Depends(verify_admin_token)])
 async def seed_simulation(session: AsyncSession = Depends(get_session)):
     """Seed the warehouse database with simulation data."""
     from domains.warehouse.simulation.seeder import seed_database
@@ -117,7 +124,7 @@ async def seed_simulation(session: AsyncSession = Depends(get_session)):
     return {"status": "seeded", "counts": result}
 
 
-@router.post("/simulation/start")
+@router.post("/simulation/start", dependencies=[Depends(verify_admin_token)])
 async def start_simulation():
     """Start the order generator."""
     if not _generator:
@@ -128,7 +135,7 @@ async def start_simulation():
     return {"status": "started"}
 
 
-@router.post("/simulation/stop")
+@router.post("/simulation/stop", dependencies=[Depends(verify_admin_token)])
 async def stop_simulation():
     """Stop the order generator."""
     if not _generator:

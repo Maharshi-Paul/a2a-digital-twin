@@ -73,6 +73,9 @@ class WarehouseQueueEngine(BaseQueueEngine):
             orders = list(result.scalars())
 
             if not orders:
+                if self._last_scored:
+                    self._last_scored = []
+                    await self.bus.update_priority_queue(QUEUE_KEY, {})
                 return
 
             # Get global context
