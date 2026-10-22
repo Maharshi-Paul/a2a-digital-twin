@@ -383,9 +383,15 @@ Dashboard available at **http://localhost:3000**.
 The architecture supports a zero-cost free-tier deployment across **Vercel** (Frontend) and **Render** (Backend) with managed **Neon** (PostgreSQL) and **Upstash / Render Key Value** (Redis):
 
 ### 1. Database — Neon PostgreSQL
-1. Create a free project at [neon.tech](https://neon.tech).
-2. Copy your connection string. You can use either the direct connection or the pooled connection string (with PgBouncer). The backend automatically sets `statement_cache_size=0` and handles SSL negotiation.
-3. Ensure the dialect starts with `postgresql+asyncpg://` or let the backend auto-convert `postgresql://`.
+1. Create a free project at [neon.tech](https://neon.tech) or initialize using the Neon CLI:
+   ```bash
+   neon init -y --org-id <org-id> --project-id <project-id> --branch production --services postgres
+   neon deploy
+   ```
+2. Neon automatically configures `neon.ts` and syncs credentials into `.env`:
+   - `DATABASE_URL`: Pooled connection string with PgBouncer for general application queries.
+   - `DATABASE_URL_UNPOOLED`: Direct connection string for DDL schema creation and migrations.
+3. The backend automatically sets `statement_cache_size=0` for PgBouncer pooler compatibility, normalizes asyncpg DSN protocols, and strips incompatible parameters (`sslmode`, `channel_binding`) while securing the connection via SSLContext.
 
 ### 2. Redis — Upstash Redis or Render Key Value
 1. **Option A (Render Key Value Store):** Create a free Key Value instance directly inside your Render dashboard (same private network, low latency).

@@ -7,13 +7,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "../.env", "backend/.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
     # ── Database ───────────────────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://wdt_user:wdt_pass@localhost:5432/warehouse_twin"
+    database_url_unpooled: str | None = None
+    neon_branch: str | None = None
     db_pool_size: int = 5
     db_max_overflow: int = 5
     db_pool_recycle: int = 300

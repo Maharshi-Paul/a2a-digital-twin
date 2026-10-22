@@ -24,3 +24,5 @@ services:
         value: "true"
       - key: LLM_PROVIDER
         value: "none"
+      - key: DATABASE_URL_UNPOOLED
+        sync: false

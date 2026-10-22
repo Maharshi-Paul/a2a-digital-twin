@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
-from core.database import async_session_factory, engine
+from core.database import async_session_factory, engine, unpooled_engine
 from core.models.base import Base
 
 # Import all models so SQLAlchemy registers them
@@ -70,8 +70,8 @@ async def lifespan(app: FastAPI):
     logger.info("  WAREHOUSE DIGITAL TWIN — Starting...")
     logger.info("=" * 60)
 
-    # 1. Create database tables
-    async with engine.begin() as conn:
+    # 1. Create database tables (using unpooled engine for DDL per Neon best practices)
+    async with unpooled_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created")
 
@@ -134,6 +134,7 @@ async def lifespan(app: FastAPI):
         await agent.stop()
     await bus.disconnect()
     await engine.dispose()
+    await unpooled_engine.dispose()
     logger.info("Warehouse Digital Twin stopped.")
 
 

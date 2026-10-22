@@ -33,9 +33,10 @@ def _prepare_db_url_and_args(raw_url: str) -> tuple[str, dict]:
     parts = urlsplit(raw_url)
     query_params = dict(parse_qsl(parts.query))
 
-    # 2. Extract and remove sslmode if present
+    # 2. Extract and remove sslmode and channel_binding if present
     sslmode = query_params.pop("sslmode", None)
     ssl_param = query_params.pop("ssl", None)
+    query_params.pop("channel_binding", None)
 
     # Reconstruct URL without unsupported asyncpg query params
     clean_query = urlencode(query_params)
@@ -72,6 +73,20 @@ engine = create_async_engine(
     _clean_url,
     echo=False,
     connect_args=_connect_args,
+    pool_size=settings.db_pool_size,
+    max_overflow=settings.db_max_overflow,
+    pool_pre_ping=settings.db_pool_pre_ping,
+    pool_recycle=settings.db_pool_recycle,
+)
+
+# Unpooled engine specifically for DDL operations / schema creation as recommended by Neon
+_unpooled_source = settings.database_url_unpooled or settings.database_url
+_unpooled_url, _unpooled_args = _prepare_db_url_and_args(_unpooled_source)
+
+unpooled_engine = create_async_engine(
+    _unpooled_url,
+    echo=False,
+    connect_args=_unpooled_args,
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,
     pool_pre_ping=settings.db_pool_pre_ping,
