@@ -130,12 +130,17 @@ graph LR
 
 The dynamic priority engine scores every pending order on each tick with a weighted multi-factor function:
 
-$$\text{Priority Score} = w_1 \cdot \text{SLA\_Risk} + w_2 \cdot \text{Wait\_Time} + w_3 \cdot \text{Inv\_Readiness} + w_4 \cdot \text{Congestion\_Factor} + w_5 \cdot \text{Packing\_Factor}$$
+$$
+\begin{aligned}
+\text{Priority Score} ={}& w_1 \cdot \text{SLA Risk} + w_2 \cdot \text{Wait Time} + w_3 \cdot \text{Inventory Readiness} \\
+&+ w_4 \cdot \text{Aisle Congestion} + w_5 \cdot \text{Packing Capacity}
+\end{aligned}
+$$
 
 | Factor | Weight | Formula / Definition | Objective |
 |---|---|---|---|
-| **SLA Risk** | $w_1 = 0.35$ | $\max\left(0, 1 - \frac{\text{minutes\_remaining}}{\text{max\_sla\_window}}\right)$ | Expedite orders approaching SLA breach |
-| **Wait Time** | $w_2 = 0.15$ | $\min\left(1, \frac{\text{elapsed\_wait\_minutes}}{\text{max\_wait\_window}}\right)$ | Prevent queue starvation for older orders |
+| **SLA Risk** | $w_1 = 0.35$ | $\max\left(0, 1 - \frac{\text{minutes remaining}}{\text{max SLA window}}\right)$ | Expedite orders approaching SLA breach |
+| **Wait Time** | $w_2 = 0.15$ | $\min\left(1, \frac{\text{elapsed wait minutes}}{\text{max wait window}}\right)$ | Prevent queue starvation for older orders |
 | **Inventory Readiness** | $w_3 = 0.25$ | $\frac{\sum \text{available items in stock}}{\text{total order items requested}}$ | Prioritize orders that are ready to pick immediately |
 | **Aisle Congestion** | $w_4 = 0.10$ | $1.0 - \text{average congestion of target zones}$ | Route pickers away from crowded aisles |
 | **Packing Capacity** | $w_5 = 0.15$ | $1.0 - \text{overall packing station utilization}$ | Throttle picking when packing tables are full |
